@@ -1,0 +1,71 @@
+# XFree86 4.3 config for the bench: QEMU's Cirrus GD5446 instead of the unit's
+# Radeon 9200. Derived from the unit's own XF86Config-4.9200; the differences
+# are recorded in notes/xserver.md.
+#
+#   Driver   radeon -> cirrus
+#   BusID    PCI:1:0:0 -> PCI:0:2:0
+#   AGP      AGPMode 8 / AGPSize 128 dropped (no AGP graphics here)
+#   Modules  glx only - dri/pex5/xie/xtrap dropped, there is no DRI hardware
+
+Section "ServerLayout"
+	Identifier     "XFree86 Configured"
+	Screen      0  "Screen0" 0 0
+	InputDevice    "Mouse0" "CorePointer"
+	InputDevice    "Keyboard0" "CoreKeyboard"
+EndSection
+
+Section "Files"
+	RgbPath      "/usr/X11R6/lib/X11/rgb"
+	ModulePath   "/usr/X11R6/lib/modules"
+	FontPath     "/usr/X11R6/lib/X11/fonts/misc/"
+	FontPath     "/usr/X11R6/lib/X11/fonts/Speedo/"
+	FontPath     "/usr/X11R6/lib/X11/fonts/Type1/"
+	FontPath     "/usr/X11R6/lib/X11/fonts/75dpi/"
+	FontPath     "/usr/X11R6/lib/X11/fonts/100dpi/"
+EndSection
+
+Section "Module"
+	Load  "glx"
+EndSection
+
+Section "InputDevice"
+	Identifier  "Keyboard0"
+	Driver      "keyboard"
+EndSection
+
+Section "InputDevice"
+	Identifier  "Mouse0"
+	Driver      "mouse"
+	Option	    "Protocol" "auto"
+	Option	    "Device" "/dev/sysmouse"
+	Option	    "Buttons" "5"
+EndSection
+
+Section "Monitor"
+	Identifier   "Monitor0"
+	VendorName   "Monitor Vendor"
+	ModelName    "Monitor Model"
+	HorizSync    31.5 - 64.3
+	VertRefresh  50.0 - 75.0
+EndSection
+
+Section "Device"
+	Identifier  "Card0"
+	Driver      "cirrus"
+	BusID       "PCI:0:2:0"
+EndSection
+
+Section "Screen"
+	Identifier "Screen0"
+	Device     "Card0"
+	Monitor    "Monitor0"
+	DefaultDepth 24
+	SubSection "Display"
+		Depth     24
+		Modes     "1024x768" "800x600" "640x480"
+	EndSubSection
+	SubSection "Display"
+		Depth     16
+		Modes     "1024x768" "800x600" "640x480"
+	EndSubSection
+EndSection

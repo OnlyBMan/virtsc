@@ -1,0 +1,34 @@
+# Disk images, in every form one might arrive in. The overlay quickstart.txt
+# creates is the likely one, and it is as large as the image behind it - but
+# the base image itself is TWC's software and must never be committed either,
+# whatever it is named.
+*.qcow2
+*.qcow
+*.img
+*.vmdk
+*.raw
+*.vdi
+*.vhd
+*.vhdx
+*.iso
+
+# The card's output and capture FIFOs, its QMP socket and its serial log.
+is1-in-v
+is1-in-a
+is1-output
+qmp.sock
+serial.log
+
+# Built from the sources in tools/.
+tools/is1ndi/is1ndi
+tools/is1view/is1view
+*.o
+*.so
+
+# The QEMU fork, if you clone it in here rather than beside it.
+qemu-is1/
+
+# Editor and OS litter.
+*.swp
+*~
+.DS_Store
