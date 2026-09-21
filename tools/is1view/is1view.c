@@ -238,8 +238,8 @@ int main(int argc, char **argv)
 	win = SDL_CreateWindow("VirTSC Output",
 	                       SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 	                       W, H, SDL_WINDOW_RESIZABLE);
-	ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED |
-	                         SDL_RENDERER_PRESENTVSYNC);
+	/* The card already paces frames; vsync here only stalls FIFO draining. */
+	ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
 	if (!ren) {
 		ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
 	}
@@ -301,9 +301,9 @@ int main(int argc, char **argv)
 
 		/*
 		 * Drain, do not sample. One frame per iteration couples the
-		 * reader to the render loop, which is vsync-limited - 50 Hz on
-		 * this display against a 29.97 fps source - so any hitch makes
-		 * the reader fall behind and then catch up in a burst. Audio
+		 * reader to presentation, which may block long enough for the
+		 * small macOS FIFO to fill. Any hitch then makes the reader fall
+		 * behind and catch up in a burst. Audio
 		 * has to be continuous, so take every frame that is waiting and
 		 * queue all of it, and render only the most recent picture.
 		 */
