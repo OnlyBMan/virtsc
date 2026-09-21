@@ -30,11 +30,11 @@
 #define FRAME_BYTES (W * H * 4)
 
 /*
- * Each frame is preceded by a 16-byte header: magic, width, height, frame
- * number. The stream is frame-aligned by construction - the device never
- * starts a frame before the previous one has gone out - so the magic is a
- * check rather than a resync point, and a mismatch means something is wrong
- * that is worth saying out loud instead of showing a sheared picture.
+ * Each frame is preceded by a 32-byte header: magic, width, height, frame
+ * number, and audio metadata. The stream is frame-aligned by construction:
+ * the device never starts a frame before the previous one has gone out. The
+ * magic is a check rather than a resync point, and a mismatch means something
+ * is wrong that is worth saying out loud instead of showing a sheared picture.
  */
 #define HDR_BYTES 32
 #define MAGIC 0x32535449u   /* 'ITS2' */
@@ -60,13 +60,15 @@ static unsigned int rd32(const unsigned char *p)
  * `patient` is the whole trick. Once the frame header has been consumed the
  * body MUST be waited for, because giving up half way through discards the
  * header and the next call then reads body bytes as a header, fails the
- * magic, eats another sixteen bytes and desynchronises for good. That showed
+ * magic, eats another header and desynchronises for good. That showed
  * as a steady 1.4 fps while the card was doing 30.
  */
 static int read_exact(int fd, unsigned char *buf, size_t want, int patient)
 {
 	size_t got = 0;
-	int waited = 0;
+	int saved_flags = -1;
+	int blocking = 0;
+	int result = 1;
 
 	while (got < want) {
 		ssize_t n = read(fd, buf + got, want - got);
@@ -76,22 +78,44 @@ static int read_exact(int fd, unsigned char *buf, size_t want, int patient)
 			continue;
 		}
 		if (n == 0) {
-			return 0;               /* writer closed */
+			result = 0;             /* writer closed */
+			break;
 		}
-		if (errno == EAGAIN || errno == EINTR) {
-			/* Short reads are normal: the pipe hands over what it has. */
-			if (got == 0 && !patient) {
-				return -1;
-			}
-			if (++waited > 2000) {
-				return -1;      /* writer stalled; resynchronise */
-			}
-			SDL_Delay(1);
+		if (errno == EINTR) {
 			continue;
 		}
-		return 0;
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			/* Short reads are normal: the pipe hands over what it has. */
+			if (got == 0 && !patient) {
+				result = -1;
+				break;
+			}
+			/*
+			 * Do not poll the pipe with millisecond sleeps. macOS FIFOs
+			 * are small, so a 1.38 MB frame arrives as many short reads;
+			 * sleeping after each one limits the viewer to a few fps.
+			 * Once any part of a frame is committed, finish that read in
+			 * blocking mode and let the kernel wake us for each chunk.
+			 * Restore non-blocking mode before looking for another frame.
+			 */
+			if (!blocking) {
+				saved_flags = fcntl(fd, F_GETFL, 0);
+				if (saved_flags >= 0 && (saved_flags & O_NONBLOCK) &&
+				    fcntl(fd, F_SETFL, saved_flags & ~O_NONBLOCK) == 0) {
+					blocking = 1;
+					continue;
+				}
+			}
+			SDL_Delay(0);           /* fcntl failed; yield without a timer tick */
+			continue;
+		}
+		result = 0;
+		break;
 	}
-	return 1;
+	if (blocking) {
+		fcntl(fd, F_SETFL, saved_flags);
+	}
+	return result;
 }
 
 static SDL_AudioDeviceID audio_dev;
@@ -198,7 +222,7 @@ int main(int argc, char **argv)
 	SDL_Texture *tex;
 	unsigned char *buf, *alpha;
 	int fd, running = 1, full = 0, show_alpha = 0, drained = 0;
-	Uint32 t0, frames = 0, shown = 0;
+	Uint32 t0, frames = 0;
 
 	fd = open(path, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
@@ -323,14 +347,16 @@ int main(int argc, char **argv)
 			} else {
 				SDL_UpdateTexture(tex, NULL, buf, W * 4);
 			}
-			shown++;
 		} else {
 			SDL_Delay(2);
 		}
 
-		SDL_RenderClear(ren);
-		SDL_RenderCopy(ren, tex, NULL, NULL);
-		SDL_RenderPresent(ren);
+		/* Present only new pictures; an idle vsync must not pace the FIFO. */
+		if (r == 1) {
+			SDL_RenderClear(ren);
+			SDL_RenderCopy(ren, tex, NULL, NULL);
+			SDL_RenderPresent(ren);
+		}
 
 		if (SDL_GetTicks() - t0 >= 2000) {
 			char title[128];
