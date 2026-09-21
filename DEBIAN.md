@@ -220,7 +220,7 @@ That's what **is1view** is for.
 # Step 6: Picture-perfect
 This is the final stretch to viewing your glorious 30 FPS of video and stereo audio. All we need to do now is **build is1view.**
 
-`cd` to the folder where you cloned **virtsc**, and then `cd` into **is1view**.
+`cd` to the folder where you cloned **virtsc**, and then `cd` into **tools/is1view**.
 
 Build **is1view** (on your host machine, obviously):
 ```bash
