@@ -400,10 +400,12 @@ def main():
     sys.stderr.write("%d entry points parsed: %d marshalled, %d local, %d stubs\n"
                      % (len(funcs), n_m, n_l, len(funcs) - n_m - n_l))
 
-    open(os.path.join(outdir, "is1gl_ops.h"), "w").write(gen_ops_h(funcs))
-    open(os.path.join(outdir, "is1gl_gen_guest.h"), "w").write(gen_guest(funcs))
-    open(os.path.join(qemudir, "is1gl_replay.h"), "w").write(gen_host(funcs))
-    open(os.path.join(qemudir, "is1gl_ops.h"), "w").write(gen_ops_h(funcs))
+    # Keep backslash-continued macros usable by the guest's old preprocessor,
+    # even when this generator runs on Windows.
+    open(os.path.join(outdir, "is1gl_ops.h"), "w", newline="\n").write(gen_ops_h(funcs))
+    open(os.path.join(outdir, "is1gl_gen_guest.h"), "w", newline="\n").write(gen_guest(funcs))
+    open(os.path.join(qemudir, "is1gl_replay.h"), "w", newline="\n").write(gen_host(funcs))
+    open(os.path.join(qemudir, "is1gl_ops.h"), "w", newline="\n").write(gen_ops_h(funcs))
 
 
 if __name__ == "__main__":
