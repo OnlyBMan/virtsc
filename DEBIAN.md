@@ -4,7 +4,7 @@ This guide provides a walkthrough on installing and configuring VirTSC on Debian
 # Step 1: Prerequisites
 We need to ensure we have all packages required in order to build VirTSC. Install the following:
 ```
-sudo apt-get install -y bison bzip2 ca-certificates ccache findutils flex gcc git libc6-dev libfdt-dev libffi-dev libglib2.0-dev libpixman-1-dev locales make meson ninja-build pkg-config libosmesa6 libosmesa6-dev cmake libgtk-3-dev
+sudo apt-get install -y bison bzip2 ca-certificates ccache findutils flex gcc git libc6-dev libfdt-dev libffi-dev libglib2.0-dev libpixman-1-dev locales make meson ninja-build pkg-config libosmesa6 libosmesa6-dev cmake libgtk-3-dev libsdl2-dev
 ```
 With these installed, clone the **qemu-is1** and **virtsc** repositories:
 ```bash
