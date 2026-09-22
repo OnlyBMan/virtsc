@@ -41,7 +41,7 @@ mkdir ~/i1
 Place your image in the folder you created. I'll use `~/i1/weatherscan.img` as the location of the disk image for this example.
 
 ### You now have a choice to make. You can use a raw disk image for the VM, or you can convert the disk image to a qcow2 snapshot file. 
-If you want to use a raw disk image (EASIEST), proceed with **[Step 3a](#step-3a-vm-with-raw-image).** If you would like to convert to a qcow2 file (snapshot-based instead of raw image), proceed with **[Step 3b](#step-3a-vm-with-raw-image).** 
+If you want to use a raw disk image (EASIEST), proceed with **[Step 3a](#step-3a-vm-with-raw-image).** If you would like to convert to a qcow2 file (snapshot-based instead of raw image), proceed with **[Step 3b](#step-3b-vm-with-snapshot-qcow2-file).** 
 
 ## Step 3a: VM with raw image
 We need to modify the file permissions of the image:
@@ -78,21 +78,62 @@ stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
   ```
 You should now have a **run.sh** script in your folder. Let's make it executable.
 ```bash
-chmod +x ~\i1\run.sh
+chmod +x ~/i1/run.sh
 ```
 Okay! Proceed to **step 4.**
 
 ## Step 3b: VM with snapshot (qcow2) file
 ***STOP!*** If you just completed **Step 3a,** you did not pay attention. The following instructions do not apply to you.
 
-**TO-DO.** (In Allen Jackson voice:) Uhh...
+We need to modify the file permissions of the image:
+```bash
+chmod 444 ~/i1/weatherscan.img
+```
+Create FIFO files for input video and audio:
+```bash
+mkfifo ~/i1/is1-in-v ~/i1/is1-in-a
+```
+Now, let's convert the raw image to a **qcow2** image using the **qemu-img** binary located in our build folder. Run the following, ensuring that you properly locate your disk image:
+```bash
+qemu-img -f raw -O qcow2 -c ~/i1/weatherscan.img ~/i1/weatherscan.qcow2 -p
+```
+Be patient, as this may take a while. If it fails, there's a good chance the raw disk image has bad sectors on it. If that's the case, you could try to convert a **vmdk** to **qcow2** by changing the input (**raw**) to **vmdk**. If all else fails, resort to **[Step 3a](#step-3a-vm-with-raw-image).** Additionally, *if you know what you're doing,* you could just configure the qemu startup command to boot from a .vmdk drive instead of a .qcow2 or .img.
+
+Great. Now we're going to create a shell script that you can easily launch your IntelliSTAR 1 VM with. Be sure to replace `~/i1/weatherscan.qcow2` on **-drive file=** with the path to your image if you used a different path. You need to change `qemu-system-i386` to its complete path, if you did not add the **qemu-is1/build** folder to your system's PATH.
+```bash
+echo "qemu-system-i386 \
+  -name IS1 \
+  -machine pc,acpi=off \
+  -global i440FX.agp=on -global i440FX.agp-aperture-size=128M \
+  -global piix3-ide.force-bus-master=on \
+  -accel kvm -cpu pentium3 -m 512 -smp 1 \
+  -drive file=~/i1/weatherscan.qcow2,format=qcow2,if=ide,cache=writeback -boot c \
+  -vga cirrus \
+  -netdev user,id=net0,net=10.100.102.0/24,host=10.100.102.1 \
+  -device i82557b,netdev=net0 \
+  -netdev user,id=net1,net=10.0.2.0/24,host=10.0.2.2,hostfwd=tcp:127.0.0.1:2222-10.0.2.15:22 \
+  -device e1000-82545em,netdev=net1 \
+  -rtc base=utc,clock=host \
+  -serial file:./serial.log \
+  -qmp unix:./qmp.sock,server,nowait \
+  -device thunderstorm,id=tsc0,present=on,version=0x011a0012,\
+input=bars,output=./is1-output,\
+input-pipe=./is1-in-v,input-audio=./is1-in-a,\
+stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
+  -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
+  -display gtk,zoom-to-fit=on,gl=off" > ~/i1/run.sh
+  ```
+You should now have a **run.sh** script in your folder. Let's make it executable.
+```bash
+chmod +x ~/i1/run.sh
+```
 
 # Step 4: IntelliSTAR 1 Setup
 Time to start the IS1! Be ready though, because we need to interrupt the boot sequence to make some modifications.
 
 Run your startup script:
 ```bash
-~\i1\run.sh
+~/i1/run.sh
 ```
 
 ### The following instructions should be performed on the VM, not your host.
