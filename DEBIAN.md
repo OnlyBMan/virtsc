@@ -41,7 +41,7 @@ mkdir ~/i1
 Place your image in the folder you created. I'll use `~/i1/weatherscan.img` as the location of the disk image for this example.
 
 ### You now have a choice to make. You can use a raw disk image for the VM, or you can convert the disk image to a qcow2 snapshot file. 
-If you want to use a raw disk image (EASIEST), proceed with **Step 3a.** If you would like to convert to a qcow2 file (snapshot-based instead of raw image), proceed with **Step 3b.** 
+If you want to use a raw disk image (EASIEST), proceed with **[Step 3a](#step-3a-vm-with-raw-image).** If you would like to convert to a qcow2 file (snapshot-based instead of raw image), proceed with **[Step 3b](#step-3a-vm-with-raw-image).** 
 
 ## Step 3a: VM with raw image
 We need to modify the file permissions of the image:
