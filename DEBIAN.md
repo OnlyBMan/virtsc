@@ -179,6 +179,11 @@ ee /etc/login.access
 ```
 **Delete or comment out the last line in the file** (the one that says `-:root:ALL EXCEPT LOCAL`). Press **ESC** and then press **A** twice to save.
 
+We need to make a directory in preparation of the upcoming file transfer:
+```bash
+mkdir /usr/local/src -p
+```
+
 Okay! Now we need to get some files on the VM. To do this, all services need to be running (we need SSH). Type `exit` and hit **ENTER**. This will continue the boot process beyond single-user mode. Once you get to the login prompt, you're ready to copy the necessary files to the VM.
 
 ### The following instructions should be performed on your host machine, NOT the VM.
