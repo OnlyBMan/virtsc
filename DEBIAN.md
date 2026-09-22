@@ -50,7 +50,7 @@ chmod 666 ~/i1/weatherscan.img
 ```
 Create FIFO files for input video and audio:
 ```bash
-mkfifo ~/i1/is1-in-v ~/is1-in-a
+mkfifo ~/i1/is1-in-v ~/i1/is1-in-a
 ```
 Great. Now we're going to create a shell script that you can easily launch your IntelliSTAR 1 VM with. Be sure to replace `~/i1/weatherscan.img` on **-drive file=** with the path to your image if you used a different path. You need to change `qemu-system-i386` to its complete path, if you did not add the **qemu-is1/build** folder to your system's PATH.
 ```bash
@@ -74,7 +74,7 @@ input=bars,output=./is1-output,\
 input-pipe=./is1-in-v,input-audio=./is1-in-a,\
 stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
-  -display gtk,zoom-to-fit=on,gl=off" > ~\i1\run.sh
+  -display gtk,zoom-to-fit=on,gl=off" > ~/i1/run.sh
   ```
 You should now have a **run.sh** script in your folder. Let's make it executable.
 ```bash
