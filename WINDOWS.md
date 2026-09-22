@@ -6,6 +6,12 @@ We will be using **MSYS2 MINGW64** to build the Windows binaries and **Mesa OSMe
 
 # Step 1: Prerequisites
 
+Clone the **qemu-is1** and **virtsc** repositories:
+```bash
+git clone https://github.com/VirTSC/qemu-is1 --branch windows
+git clone https://github.com/VirTSC/virtsc --branch windows
+```
+
 We need to ensure we have everything required to build VirTSC. First, download the **x86-64 MSYS2 installer** from the [MSYS2 website](https://www.msys2.org/docs/installer/) and install it in **`C:\msys64`**.
 
 Find **MSYS2 MINGW64** in the Start menu, right-click it, and select **Run as administrator**. Keep using this elevated MINGW64 shell for all compilation steps. **Do not use the plain MSYS shell, UCRT64, Git Bash, WSL, or an ordinary Command Prompt to build.**
