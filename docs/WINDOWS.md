@@ -8,8 +8,8 @@ We will be using **MSYS2 MINGW64** to build the Windows binaries and **Mesa OSMe
 
 Clone the **qemu-is1** and **virtsc** repositories:
 ```bash
-git clone https://github.com/VirTSC/qemu-is1 --branch windows
-git clone https://github.com/VirTSC/virtsc --branch windows
+git clone https://github.com/VirTSC/qemu-is1
+git clone https://github.com/VirTSC/virtsc
 ```
 
 We need to ensure we have everything required to build VirTSC. First, download the **x86-64 MSYS2 installer** from the [MSYS2 website](https://www.msys2.org/docs/installer/) and install it in **`C:\msys64`**.
@@ -77,33 +77,27 @@ The paths should begin with **`/mingw64/bin/`**.
 
 ## Preparing the source folders
 
-**Important:** This walkthrough uses the **already-adjusted Windows source trees** described in the Windows build instructions. It assumes those changes are present; it does not provide a patch or substitute an unmodified public checkout.
-
-The adjusted **qemu-is1** tree must contain the Windows changes in **`hw/misc/is1gl.c`** and **`hw/misc/thunderstorm.c`**. These load the required framebuffer functions through `OSMesaGetProcAddress` and disable the POSIX FIFO/output-file paths on Windows while retaining the built-in program display and audio.
-
-The adjusted **virtsc** tree must also contain the guest line-ending changes: **`.gitattributes`** records the guest source payload as Unix LF text, and **`tools/is1gl/protocol.py`** emits generated headers with LF endings on Windows.
-
 For this walkthrough, we will use the following locations:
 
 ```text
-C:\msys64                         MSYS2 installation
-C:\Users\i1\qemu-is1-priv           QEMU source
-C:\Users\i1\virtsc-priv             VirTSC guest source
-C:\vtsc-build\mesa-24.3.4           Mesa source
-C:\vtsc-build\mesa-build            Mesa build directory
-C:\vtsc-build\osmesa                Mesa installation
-C:\vtsc-build\qemu-build            QEMU build directory
-C:\vtsc-build\qemu-install          QEMU installation
-C:\IS1                            disk image and VM logs
+C:\msys64                     MSYS2 installation
+C:\Users\i1\qemu-is1          QEMU source
+C:\Users\i1\virtsc            VirTSC guest source
+C:\vtsc-build\mesa-24.3.4     Mesa source
+C:\vtsc-build\mesa-build      Mesa build directory
+C:\vtsc-build\osmesa          Mesa installation
+C:\vtsc-build\qemu-build      QEMU build directory
+C:\vtsc-build\qemu-install    QEMU installation
+C:\IS1                        disk image and VM logs
 ```
 
-The two source paths are the examples used in the Windows build instructions. **Replace `C:\Users\i1\qemu-is1-priv` and `C:\Users\i1\virtsc-priv` throughout this guide if your adjusted source folders are elsewhere.** Their MINGW64 equivalents begin with **`/c/Users/i1/`**. Keep installation, source, and build paths short, ASCII-only, and free of spaces.
+The two source paths are the examples used in the Windows build instructions. **Replace `C:\Users\i1\qemu-is1` and `C:\Users\i1\virtsc` throughout this guide if your adjusted source folders are elsewhere.** Their MINGW64 equivalents begin with **`/c/Users/i1/`**. Keep installation, source, and build paths short, ASCII-only, and free of spaces.
 
 Check that the source folders exist, then create the build and VM folders:
 
 ```bash
-test -d /c/Users/i1/qemu-is1-priv
-test -d /c/Users/i1/virtsc-priv
+test -d /c/Users/i1/qemu-is1
+test -d /c/Users/i1/virtsc
 mkdir -p /c/vtsc-build /c/IS1
 ```
 
@@ -201,7 +195,7 @@ cd /c/vtsc-build/qemu-build
 Configure the native Windows build:
 
 ```bash
-/c/Users/i1/qemu-is1-priv/configure \
+/c/Users/i1/qemu-is1/configure \
   --target-list=x86_64-softmmu \
   --enable-whpx \
   --enable-osmesa \
@@ -523,12 +517,12 @@ Once the VM reaches its login prompt, you're ready to copy the guest components.
 
 Make sure **`ssh.exe`** and **`scp.exe`** are available. If they are missing, install the **Windows OpenSSH Client** optional feature before continuing.
 
-We'll copy the guest libraries, generated headers, and XF86 configuration from your adjusted **virtsc** folder. Change **`$Virtsc`** if the source folder is elsewhere.
+We'll copy the guest libraries, generated headers, and XF86 configuration from your **virtsc** folder. Change **`$Virtsc`** if the source folder is elsewhere.
 
 First, prepare the file list and connection options:
 
 ```powershell
-$Virtsc = 'C:\Users\i1\virtsc-priv'
+$Virtsc = 'C:\Users\i1\virtsc'
 $GuestFiles = @(
     "$Virtsc\src\agp\libagpnv.c",
     "$Virtsc\src\glfix\libglfix.c",
