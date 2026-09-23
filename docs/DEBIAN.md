@@ -71,10 +71,11 @@ exec qemu-system-i386 \
   -rtc base=utc,clock=host \
   -serial file:./serial.log \
   -qmp unix:./qmp.sock,server,nowait \
+  -audiodev sdl,id=audio0 \
   -device thunderstorm,id=tsc0,present=on,version=0x011a0012,\
-input=bars,output=./is1-output,\
-input-pipe=./is1-in-v,input-audio=./is1-in-a,\
-stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
+input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
+stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
+audiodev=audio0 \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
   -display gtk,zoom-to-fit=on,gl=off
 EOF
@@ -121,10 +122,11 @@ exec qemu-system-i386 \
   -rtc base=utc,clock=host \
   -serial file:./serial.log \
   -qmp unix:./qmp.sock,server,nowait \
+  -audiodev sdl,id=audio0 \
   -device thunderstorm,id=tsc0,present=on,version=0x011a0012,\
-input=bars,output=./is1-output,\
-input-pipe=./is1-in-v,input-audio=./is1-in-a,\
-stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
+input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
+stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
+audiodev=audio0 \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
   -display gtk,zoom-to-fit=on,gl=off
 EOF
@@ -264,23 +266,13 @@ reboot
 # Step 5: Checking installation
 Once the VM returns and starts the X server, the **renderd** window should be solid black, with nothing displayed. Don't freak out! This is intentional.
 
-To check that VirTSC is working, **click on View in the qemu window**, and then **click tsc0**. If everything was installed correctly, you should see the raw TSC video output. **The framerate is slow in the display, and that's normal.** ***This is NOT how you will be viewing the complete output!!!***
+To check that VirTSC is working, **click on View in the qemu window**, and then **click tsc0** (or press **`Ctrl+Alt+2`**). If everything was installed correctly, you should see the Thunderstorm program output at full frame rate, with its audio playing through your host's speakers. There is nothing else to build or launch.
 
-That's what **is1view** is for.
+Keep these shortcuts handy:
 
-# Step 6: Picture-perfect
-This is the final stretch to viewing your glorious 30 FPS of video and stereo audio. All we need to do now is **build is1view.**
-
-`cd` to the folder where you cloned **virtsc**, and then `cd` into **tools/is1view**.
-
-Build **is1view** (on your host machine, obviously):
-```bash
-make
-```
-
-Ready to view your IS1? **Run is1view** targeting the `is1-output` file in your VM's environment folder (remember, in this example, that's `~/i1`)
-```bash
-./is1view ~/i1/is1-output
-```
+- **`Ctrl+Alt+1`**: switch to the IntelliSTAR VGA display.
+- **`Ctrl+Alt+2`**: switch to the Thunderstorm `tsc0` program output.
+- **`Ctrl+Alt+G`**: release or capture the keyboard and mouse.
+- **`Ctrl+Alt+F`**: toggle full screen.
 
 ### Run a flavor, and enjoy.

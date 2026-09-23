@@ -294,7 +294,7 @@ DISM.exe /Online /Enable-Feature /FeatureName:HypervisorPlatform /All
 
 For a **raw disk image (EASIEST)**, follow **[Step 3a](#step-3a-vm-with-raw-image)**. To convert the image to **qcow2**, follow **[Step 3b](#step-3b-vm-with-qcow2-image)**. **Complete only one of these two sections.**
 
-Unlike the Linux setup, this Windows build does **not** use POSIX input/output FIFOs. There are no `is1-in-v`, `is1-in-a`, or `is1-output` files to create. Program video and audio stay inside QEMU.
+Unlike the Linux setup, this Windows build does **not** support the POSIX input FIFOs. There are no `is1-in-v` or `is1-in-a` files to create.
 
 ## Step 3a: VM with raw image
 
@@ -640,11 +640,7 @@ Press **`Ctrl+Alt+1`** to return to the IntelliSTAR VGA display.
 
 # Step 6: Picture-perfect
 
-This is the final stretch. On native Windows, **there is no separate `is1view` build or output-file viewer to launch**.
-
-The startup script already enables **`program-display=on`** and **`program-audio=on`**. Thunderstorm sends program video to QEMU's second console and program audio directly to the **SDL audio backend**.
-
-The Windows build does **not** create **`is1-output`**, **`is1-in-v`**, or **`is1-in-a`**. You do not need to create FIFOs or follow the Linux `is1view` instructions.
+This is the final stretch, and there is nothing else to build or launch. The startup script already enables **`program-display=on`** and **`program-audio=on`**. Thunderstorm sends program video to QEMU's second console and program audio directly to the **SDL audio backend**.
 
 Keep these SDL shortcuts handy:
 
