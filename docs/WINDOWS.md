@@ -530,12 +530,12 @@ First, prepare the file list and connection options:
 ```powershell
 $Virtsc = 'C:\Users\i1\virtsc-priv'
 $GuestFiles = @(
-    "$Virtsc\tools\agp\libagpnv.c",
-    "$Virtsc\tools\glfix\libglfix.c",
-    "$Virtsc\tools\is1gl\is1gl.c",
-    "$Virtsc\tools\is1gl\is1gl_ring.h",
-    "$Virtsc\tools\is1gl\is1gl_ops.h",
-    "$Virtsc\tools\is1gl\is1gl_gen_guest.h",
+    "$Virtsc\src\agp\libagpnv.c",
+    "$Virtsc\src\glfix\libglfix.c",
+    "$Virtsc\src\is1gl\is1gl.c",
+    "$Virtsc\src\is1gl\is1gl_ring.h",
+    "$Virtsc\src\is1gl\is1gl_ops.h",
+    "$Virtsc\src\is1gl\is1gl_gen_guest.h",
     "$Virtsc\resources\XF86Config-4.qemu-cirrus"
 )
 

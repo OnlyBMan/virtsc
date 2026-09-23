@@ -119,7 +119,7 @@ static void say(const char *fmt, ...)
 
 /* ------------------------------------------------------------------ AGP
  *
- * Lifted from tools/agp/libagpnv.c, which this library absorbs. The ring and
+ * Lifted from src/agp/libagpnv.c, which this library absorbs. The ring and
  * renderd's frame buffers come from the same bump allocator, because they
  * come from the same aperture and the card is told about the frames by
  * aperture offset.

@@ -200,12 +200,12 @@ scp -P 2222 \
     -o MACs=+hmac-sha1 \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
-    ./tools/agp/libagpnv.c \
-    ./tools/glfix/libglfix.c \
-    ./tools/is1gl/is1gl.c \
-    ./tools/is1gl/is1gl_ring.h \
-    ./tools/is1gl/is1gl_ops.h \
-    ./tools/is1gl/is1gl_gen_guest.h \
+    ./src/agp/libagpnv.c \
+    ./src/glfix/libglfix.c \
+    ./src/is1gl/is1gl.c \
+    ./src/is1gl/is1gl_ring.h \
+    ./src/is1gl/is1gl_ops.h \
+    ./src/is1gl/is1gl_gen_guest.h \
     ./resources/XF86Config-4.qemu-cirrus \
     root@127.0.0.1:/usr/local/src/
 ```
@@ -270,7 +270,7 @@ This is the final stretch to viewing your glorious 30 FPS of video and stereo au
 
 Build **is1view** (on your host machine, obviously):
 ```bash
-cc -O2 -o is1view is1view.c $(pkg-config --cflags --libs sdl2)
+make
 ```
 
 Ready to view your IS1? **Run is1view** targeting the `is1-output` file in your VM's environment folder (remember, in this example, that's `~/i1`)

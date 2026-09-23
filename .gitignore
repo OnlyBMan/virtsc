@@ -1,5 +1,5 @@
-# Disk images, in every form one might arrive in. The overlay quickstart.txt
-# creates is the likely one, and it is as large as the image behind it - but
+# Disk images, in every form one might arrive in. A qcow2 made by the setup
+# guides is the likely one, and it is as large as the image behind it - but
 # the base image itself is TWC's software and must never be committed either,
 # whatever it is named.
 *.qcow2

@@ -1,5 +1,5 @@
-tools/agp/libagpnv.c text eol=lf
-tools/glfix/libglfix.c text eol=lf
-tools/is1gl/*.c text eol=lf
-tools/is1gl/*.h text eol=lf
+src/agp/libagpnv.c text eol=lf
+src/glfix/libglfix.c text eol=lf
+src/is1gl/*.c text eol=lf
+src/is1gl/*.h text eol=lf
 resources/XF86Config-4.qemu-cirrus text eol=lf
