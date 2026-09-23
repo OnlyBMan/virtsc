@@ -77,6 +77,8 @@ def base_type(decl, name):
 #                       GL function, because something has to happen first -
 #                       the video layer arrives as 4:2:2 YCbCr, which the host
 #                       driver does not accept and we convert
+#   "hoststate": True   pass the Is1glState pointer as the hook's first
+#                       argument when the adaptation is device-instance state
 
 OPS = {
     # ---- clears, raster state
@@ -85,7 +87,8 @@ OPS = {
     "glBlendFunc":        {},
     "glLineWidth":        {},
     "glScissor":          {},
-    "glViewport":         {"hand": True},   # tracked: the FBO size follows it
+    "glViewport":         {"hand": True, "hosthook": True,
+                           "hoststate": True},  # per guest GLX context
     "glClipPlane":        {"arr": ("equation", 4, "GLdouble")},
     "glEnable":           {"hand": True},   # tracked: glGet(GL_*) and attrib stack
     "glDisable":          {"hand": True},
@@ -377,6 +380,8 @@ def gen_host(funcs):
         if "arr" not in spec and "image" not in spec:
             callargs = [pn for _, pn in f["params"]]
         target = ("is1gl_host_%s" % name) if spec.get("hosthook") else name
+        if spec.get("hoststate"):
+            callargs.insert(0, "is1_")
         o.append("        %s(%s);\n" % (target, ", ".join(callargs)))
         o.append("        return true;\n    }\n")
     o.append("    default:\n        return false;\n    }\n}\n")

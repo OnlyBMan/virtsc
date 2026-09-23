@@ -645,6 +645,23 @@ static struct {
 	GLuint  next_texture, next_list;
 } st;
 
+/*
+ * GL_VIEWPORT is context state, not drawable or share-group state.  renderd
+ * creates two sharing contexts, and some product flavours set a viewport in
+ * only one of them.  Keep the active value in st for the hot glGet path, but
+ * retain a copy on each context so glXMakeCurrent can restore it.
+ */
+struct is1gl_ctx {
+	int id;
+	Display *dpy;
+	GLint viewport[4];
+	int viewport_valid;
+};
+
+static int next_ctx_id = 1;
+static struct is1gl_ctx *current_ctx;
+static GLXDrawable current_drawable;
+
 static int target_index(GLenum t)
 {
 	int i;
@@ -793,6 +810,11 @@ void glViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 {
 	st.viewport[0] = x; st.viewport[1] = y;
 	st.viewport[2] = width; st.viewport[3] = height;
+	if (current_ctx) {
+		memcpy(current_ctx->viewport, st.viewport,
+		       sizeof current_ctx->viewport);
+		current_ctx->viewport_valid = 1;
+	}
 	emit_glViewport(x, y, width, height);
 }
 
@@ -1131,11 +1153,6 @@ const GLubyte *glGetString(GLenum name)
 
 /* ------------------------------------------------------------------ GLX */
 
-struct is1gl_ctx { int id; Display *dpy; };
-static int next_ctx_id = 1;
-static struct is1gl_ctx *current_ctx;
-static GLXDrawable current_drawable;
-
 XVisualInfo *glXChooseVisual(Display *dpy, int screen, int *attribList)
 {
 	XVisualInfo tmpl, *vi;
@@ -1174,8 +1191,9 @@ GLXContext glXCreateContext(Display *dpy, XVisualInfo *vis,
 	c->dpy = dpy;
 	/*
 	 * The application makes two contexts and expects them to share
-	 * textures and lists. The host keeps one share group for all of them,
-	 * which covers that without a mapping table.
+	 * textures and lists. The host keeps one share group for all of them;
+	 * state that is not shared by GL, such as the viewport, remains attached
+	 * to this guest context and is restored by glXMakeCurrent().
 	 */
 	say("context %d created\n", c->id);
 	return (GLXContext)c;
@@ -1184,7 +1202,13 @@ GLXContext glXCreateContext(Display *dpy, XVisualInfo *vis,
 void glXDestroyContext(Display *dpy, GLXContext ctx)
 {
 	(void)dpy;
-	if (ctx) free(ctx);
+	if (ctx) {
+		if ((GLXContext)current_ctx == ctx) {
+			current_ctx = NULL;
+			current_drawable = (GLXDrawable)0;
+		}
+		free(ctx);
+	}
 }
 
 Bool glXMakeCurrent(Display *dpy, GLXDrawable drawable, GLXContext ctx)
@@ -1204,14 +1228,38 @@ Bool glXMakeCurrent(Display *dpy, GLXDrawable drawable, GLXContext ctx)
 	    XGetGeometry(dpy, drawable, &root, &xx, &yy, &w, &h, &bw, &dep)) {
 		say("make current: context %d drawable %ux%u\n", c->id, w, h);
 	}
+
 	r = ring_record(IS1GL_OP_MAKE_CURRENT, 12);
 	if (!r) return False;
 	put_u32(r + 0, (unsigned int)c->id);
 	put_u32(r + 4, w);
 	put_u32(r + 8, h);
 
+	/*
+	 * A newly-created GL context starts with a viewport covering its first
+	 * drawable.  Thereafter the viewport belongs to the context and survives
+	 * switches, even when another sharing context selects a different one.
+	 * Do not change the tracked context until the command was queued.
+	 */
+	if (current_ctx && current_ctx != c) {
+		memcpy(current_ctx->viewport, st.viewport,
+		       sizeof current_ctx->viewport);
+		current_ctx->viewport_valid = 1;
+	}
+	if (!c->viewport_valid) {
+		c->viewport[0] = 0;
+		c->viewport[1] = 0;
+		c->viewport[2] = (GLint)w;
+		c->viewport[3] = (GLint)h;
+		c->viewport_valid = 1;
+	}
+	memcpy(st.viewport, c->viewport, sizeof st.viewport);
+
 	current_ctx = c;
 	current_drawable = drawable;
+	/* QEMU multiplexes guest contexts onto one host compatibility context. */
+	emit_glViewport(st.viewport[0], st.viewport[1],
+	                st.viewport[2], st.viewport[3]);
 	ring_flush();
 	return True;
 }
