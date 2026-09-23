@@ -29,6 +29,8 @@ The build guide already created `C:\IS1`. Place your image at `C:\IS1\weathersca
 The build is finished, so **everything from here runs from a normal, non-elevated PowerShell window** unless a step says otherwise. The Windows build does **not** support the input FIFOs used on Linux, so there are no `is1-in-v` or `is1-in-a` files to create.
 </details>
 
+*Optional: enabling WHPX acceleration.** The launcher tries **WHPX** first and falls back to **TCG** if WHPX is unavailable. To enable WHPX, open **PowerShell as Administrator** and run:
+
 # Step 2: Choosing a disk format
 ### You now have a choice to make. You can use the raw disk image for the VM, or you can convert it to a qcow2 file.
 
@@ -176,7 +178,9 @@ try {
     Pop-Location
 }
 ```
-The VM runs under **TCG** (software emulation), as on macOS. QMP listens on **`127.0.0.1:4444`**.
+The VM runs under **TCG** (software emulation), as on macOS. Through some testing, it *should* be able to run under **WHPX** (Windows Hypervisor Platform), however not all hardware seems to work as it may crash with a "Fatal trap" or similar error. If this happens on your end, stick with TCG.
+
+QMP listens on **`127.0.0.1:4444`**.
 </details>
 
 <details>
