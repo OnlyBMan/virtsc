@@ -54,7 +54,9 @@ mkfifo ~/i1/is1-in-v ~/i1/is1-in-a
 ```
 Great. Now we're going to create a shell script that you can easily launch your IntelliSTAR 1 VM with. Be sure to replace `~/i1/weatherscan.img` on **-drive file=** with the path to your image if you used a different path. You need to change `qemu-system-i386` to its complete path, if you did not add the **qemu-is1/build** folder to your system's PATH.
 ```bash
-echo "qemu-system-i386 \
+cat > ~/i1/run.sh <<'EOF'
+#!/bin/sh
+exec qemu-system-i386 \
   -name IS1 \
   -machine pc,acpi=off \
   -global i440FX.agp=on -global i440FX.agp-aperture-size=128M \
@@ -74,8 +76,9 @@ input=bars,output=./is1-output,\
 input-pipe=./is1-in-v,input-audio=./is1-in-a,\
 stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
-  -display gtk,zoom-to-fit=on,gl=off" > ~/i1/run.sh
-  ```
+  -display gtk,zoom-to-fit=on,gl=off
+EOF
+```
 You should now have a **run.sh** script in your folder. Let's make it executable.
 ```bash
 chmod +x ~/i1/run.sh
@@ -95,13 +98,15 @@ mkfifo ~/i1/is1-in-v ~/i1/is1-in-a
 ```
 Now, let's convert the raw image to a **qcow2** image using the **qemu-img** binary located in our build folder. Run the following, ensuring that you properly locate your disk image:
 ```bash
-qemu-img -f raw -O qcow2 -c ~/i1/weatherscan.img ~/i1/weatherscan.qcow2 -p
+qemu-img convert -p -f raw -O qcow2 -c ~/i1/weatherscan.img ~/i1/weatherscan.qcow2
 ```
 Be patient, as this may take a while. If it fails, there's a good chance the raw disk image has bad sectors on it. If that's the case, you could try to convert a **vmdk** to **qcow2** by changing the input (**raw**) to **vmdk**. If all else fails, resort to **[Step 3a](#step-3a-vm-with-raw-image).** Additionally, *if you know what you're doing,* you could just configure the qemu startup command to boot from a .vmdk drive instead of a .qcow2 or .img.
 
 Great. Now we're going to create a shell script that you can easily launch your IntelliSTAR 1 VM with. Be sure to replace `~/i1/weatherscan.qcow2` on **-drive file=** with the path to your image if you used a different path. You need to change `qemu-system-i386` to its complete path, if you did not add the **qemu-is1/build** folder to your system's PATH.
 ```bash
-echo "qemu-system-i386 \
+cat > ~/i1/run.sh <<'EOF'
+#!/bin/sh
+exec qemu-system-i386 \
   -name IS1 \
   -machine pc,acpi=off \
   -global i440FX.agp=on -global i440FX.agp-aperture-size=128M \
@@ -121,8 +126,9 @@ input=bars,output=./is1-output,\
 input-pipe=./is1-in-v,input-audio=./is1-in-a,\
 stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
-  -display gtk,zoom-to-fit=on,gl=off" > ~/i1/run.sh
-  ```
+  -display gtk,zoom-to-fit=on,gl=off
+EOF
+```
 You should now have a **run.sh** script in your folder. Let's make it executable.
 ```bash
 chmod +x ~/i1/run.sh
@@ -191,8 +197,6 @@ Okay! Now we need to get some files on the VM. To do this, all services need to 
 Go ahead and `cd` to the location where you cloned **virtsc**. We'll copy a few tools and the XF86 config via **scp** from this folder:
 ```bash
 scp -P 2222 \
-    -i ~/.ssh/is1_rsa \
-    -o IdentitiesOnly=yes \
     -o KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1 \
     -o HostKeyAlgorithms=+ssh-rsa,ssh-dss \
     -o PubkeyAcceptedAlgorithms=+ssh-rsa \
@@ -213,9 +217,9 @@ Authenticate with the **root** password of the VM. If successful, this should ha
 
 Now, we'll make a quick shell script so that you can easily SSH into the VM. We'll place it in the IS1 environment folder we created at the start of all this nonsense:
 ```bash
-echo "ssh -p 2222 \
-    -i ~/.ssh/is1_rsa \
-    -o IdentitiesOnly=yes \
+cat > ~/i1/ssh.sh <<'EOF'
+#!/bin/sh
+exec ssh -p 2222 \
     -o KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1 \
     -o HostKeyAlgorithms=+ssh-rsa,ssh-dss \
     -o PubkeyAcceptedAlgorithms=+ssh-rsa \
@@ -223,7 +227,8 @@ echo "ssh -p 2222 \
     -o MACs=+hmac-sha1 \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
-    root@127.0.0.1" > ~\i1\ssh.sh
+    root@127.0.0.1
+EOF
 ```
 Make it executable:
 ```bash
