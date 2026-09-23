@@ -27,9 +27,14 @@ mkfifo ~/i1/is1-in-v ~/i1/is1-in-a
 The build guide already created `C:\IS1`. Place your image at `C:\IS1\weatherscan.img`.
 
 The build is finished, so **everything from here runs from a normal, non-elevated PowerShell window** unless a step says otherwise. The Windows build does **not** support the input FIFOs used on Linux, so there are no `is1-in-v` or `is1-in-a` files to create.
-</details>
 
-*Optional: enabling WHPX acceleration.** The launcher tries **WHPX** first and falls back to **TCG** if WHPX is unavailable. To enable WHPX, open **PowerShell as Administrator** and run:
+**Optional: enabling WHPX acceleration.** See note under the "Windows" section of Step 3 for more information. To enable WHPX, open **PowerShell as Administrator** and run:
+```powershell
+DISM.exe /Online /Enable-Feature /FeatureName:HypervisorPlatform /All
+```
+**Reboot Windows after enabling the feature.** The [QEMU WHPX documentation](https://www.qemu.org/docs/master/system/whpx.html) is available for reference.
+
+</details>
 
 # Step 2: Choosing a disk format
 ### You now have a choice to make. You can use the raw disk image for the VM, or you can convert it to a qcow2 file.
