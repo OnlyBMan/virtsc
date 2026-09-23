@@ -3,10 +3,12 @@ This guide prepares the IntelliSTAR 1 itself to run VirTSC. It is the same on ev
 
 The few steps that happen on the host use the scripts you made in the run guide:
 
-| | Debian | Windows |
+| | Debian and macOS | Windows |
 |---|---|---|
 | Copy the guest files | `~/i1/copy-guest.sh` | `C:\IS1\Copy-Guest.ps1` |
 | SSH into the VM | `~/i1/ssh.sh` | `C:\IS1\SSH-VirTSC.ps1` |
+
+On a Mac keyboard, the **Ctrl+Alt** shortcuts in this guide are **Control+Option**.
 
 # Step 1: Single-user mode
 ### The following instructions should be performed on the VM, not your host.
@@ -56,6 +58,16 @@ We need to delete the barred root login so that we can use it later. ***THIS IS 
 ee /etc/login.access
 ```
 **Delete or comment out the last line in the file** (the one that says `-:root:ALL EXCEPT LOCAL`). Press **ESC** and then press **A** twice to save.
+
+Next, we need to enable the RSA SSH key, otherwise you will not be able to connect from a modern SSH client
+```sh
+ee /etc/ssh/sshd_config
+```
+Add the following line after the other HostKey comments
+```
+HostKey /etc/ssh/ssh_host_rsa_key
+```
+Press **ESC** and then press **A** twice to save.
 
 We need to make a directory in preparation of the upcoming file transfer:
 ```sh
@@ -120,7 +132,7 @@ reboot
 # Step 4: Checking installation
 Once the VM returns and starts the X server, the **renderd** window should be solid black, with nothing displayed. Don't freak out! This is intentional.
 
-To check that VirTSC is working, press **`Ctrl+Alt+2`** in the QEMU window (on Debian, you can also **click View** and then **tsc0**). If everything was installed correctly, you should see the Thunderstorm program output at full frame rate, with its audio playing through your host's speakers. There is nothing else to build or launch.
+To check that VirTSC is working, press **`Ctrl+Alt+2`** in the QEMU window (on Debian and macOS, you can also open the **View** menu and choose **tsc0**). If everything was installed correctly, you should see the Thunderstorm program output at full frame rate, with its audio playing through your host's speakers. There is nothing else to build or launch.
 
 Keep these shortcuts handy:
 

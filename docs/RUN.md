@@ -1,15 +1,15 @@
 # Running VirTSC
-This guide sets up the scripts that start and connect to your IntelliSTAR 1 VM. You should have finished building VirTSC for your platform first ([Debian](build/DEBAIN.md) or [Windows](build/WINDOWS.md)).
+This guide sets up the scripts that start and connect to your IntelliSTAR 1 VM. You should have finished building VirTSC for your platform first ([Debian](build/DEBIAN.md), [Windows](build/WINDOWS.md) or [macOS](build/MACOS.md)).
 
 This is rather involved, so I'll try to hold your hand as much as possible through this. 
 
 Each step explains what to do, then gives the commands for each platform. **Expand the section for your platform.**
 
 # Step 1: Creating the VM folder
-First things first - have an unmodified, raw IntelliSTAR 1 disk image handy. You need a folder to hold the image, the scripts, and the VM's logs. In this guide we use `~/i1` on Linux and `C:\IS1` on Windows, with the image at `weatherscan.img` inside it.
+First things first - have an unmodified, raw IntelliSTAR 1 disk image handy. You need a folder to hold the image, the scripts, and the VM's logs. In this guide we use `~/i1` on Linux and macOS, and `C:\IS1` on Windows, with the image at `weatherscan.img` inside it.
 
 <details>
-<summary><b>Debian</b></summary>
+<summary><b>Debian and macOS</b></summary>
 
 Create the folder, and place your image at `~/i1/weatherscan.img`:
 ```bash
@@ -44,16 +44,20 @@ DISM.exe /Online /Enable-Feature /FeatureName:HypervisorPlatform /All
 Converting may take a while. If it fails, there's a good chance the raw disk image has bad sectors on it; use the raw image instead. *If you know what you're doing,* you can also boot an existing **vmdk** image by setting the format to `vmdk` in Step 3.
 
 <details>
-<summary><b>Debian</b></summary>
+<summary><b>Debian and macOS</b></summary>
 
 **Raw:** make sure the image is writable:
 ```bash
 chmod 666 ~/i1/weatherscan.img
 ```
-**qcow2:** make the raw image read-only, then convert it using the **qemu-img** binary from your build folder:
+**qcow2:** convert your source image using the **qemu-img** binary from your build folder, and create an overlay to not write over your image:
 ```bash
-chmod 444 ~/i1/weatherscan.img
-qemu-img convert -p -f raw -O qcow2 -c ~/i1/weatherscan.img ~/i1/weatherscan.qcow2
+# Convert your existing disk to QCOW
+qemu-img convert -p -f raw -O qcow2 -c ~/i1/weatherscan.img ~/i1/weatherscan-pure.qcow2
+# Make it read only
+chmod 444 ~/i1/weatherscan-pure.qcow2
+# Create an overlay to use
+qemu-img create -f qcow2 -b ~/i1/weatherscan-pure.qcow2 -F qcow2 ~/i1/weatherscan.qcow2
 ```
 </details>
 
@@ -66,11 +70,16 @@ qemu-img convert -p -f raw -O qcow2 -c ~/i1/weatherscan.img ~/i1/weatherscan.qco
 ```powershell
 $env:PATH = 'C:\msys64\mingw64\bin;C:\vtsc-build\qemu-install;' + $env:PATH
 
+# Convert your existing disk to QCOW
 qemu-img.exe convert -p -f raw -O qcow2 -c `
   C:\IS1\weatherscan.img `
-  C:\IS1\weatherscan.qcow2
+  C:\IS1\weatherscan-pure.qcow2
 
-Set-ItemProperty C:\IS1\weatherscan.img -Name IsReadOnly -Value $true
+# Make it read only
+Set-ItemProperty C:\IS1\weatherscan-pure.qcow2 -Name IsReadOnly -Value $true
+
+# Create an overlay to use
+qemu-img create -f qcow2 -b C:\IS1\weatherscan-pure.qcow2 -F qcow2 C:\IS1\weatherscan.qcow2
 ```
 </details>
 
@@ -177,13 +186,53 @@ try {
 The two **`-accel`** entries tell QEMU to try WHPX and continue with TCG if WHPX is unavailable. QMP listens on **`127.0.0.1:4444`**.
 </details>
 
+<details>
+<summary><b>macOS</b></summary>
+
+Change `qemu-system-i386` to its complete path if you did not add the **qemu-is1/build** folder to your system's PATH. Compared to the Debian script, this one uses **TCG** instead of KVM (macOS has no KVM, and HVF doesn't support the i386 target), **CoreAudio** for sound, and the native **Cocoa** window.
+```bash
+cat > ~/i1/run.sh <<'EOF'
+#!/bin/sh
+IMG="$HOME/i1/weatherscan.img"
+FORMAT=raw
+
+# The logs, QMP socket and FIFOs live next to this script.
+cd "$(dirname "$0")" || exit 1
+exec qemu-system-i386 \
+  -name IS1 \
+  -machine pc,acpi=off \
+  -global i440FX.agp=on -global i440FX.agp-aperture-size=128M \
+  -global piix3-ide.force-bus-master=on \
+  -accel tcg -cpu pentium3 -m 512 -smp 1 \
+  -drive "file=$IMG,format=$FORMAT,if=ide,cache=writeback" -boot c \
+  -vga cirrus \
+  -netdev user,id=net0,net=10.100.102.0/24,host=10.100.102.1 \
+  -device i82557b,netdev=net0 \
+  -netdev user,id=net1,net=10.0.2.0/24,host=10.0.2.2,hostfwd=tcp:127.0.0.1:2222-10.0.2.15:22 \
+  -device e1000-82545em,netdev=net1 \
+  -rtc base=utc,clock=host \
+  -serial file:./serial.log \
+  -qmp unix:./qmp.sock,server,nowait \
+  -audiodev coreaudio,id=audio0 \
+  -device thunderstorm,id=tsc0,present=on,version=0x011a0012,\
+input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
+stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
+audiodev=audio0 \
+  -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
+  -display cocoa,zoom-to-fit=on
+EOF
+chmod +x ~/i1/run.sh
+```
+To use GTK instead of Cocoa (if you built it), replace the last line with `-display gtk,zoom-to-fit=on,gl=off`. If you get no sound, try `-audiodev sdl,id=audio0` instead of `coreaudio`.
+</details>
+
 # Step 4: Creating the SSH scripts
 The IS1's SSH server is old, so connecting to it needs a handful of legacy options. We'll make two small scripts so you never have to type them: one to log in, and one to copy the guest files from **virtsc** onto the VM. SSH is forwarded to the VM through **`127.0.0.1:2222`**.
 
 Before saving the copy script, change the **virtsc** path in it to the folder where you cloned **virtsc**.
 
 <details>
-<summary><b>Debian</b></summary>
+<summary><b>Debian and macOS</b></summary>
 
 The SSH script:
 ```bash
@@ -191,7 +240,7 @@ cat > ~/i1/ssh.sh <<'EOF'
 #!/bin/sh
 exec ssh -p 2222 \
     -o KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1 \
-    -o HostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -o HostKeyAlgorithms=+ssh-rsa \
     -o PubkeyAcceptedAlgorithms=+ssh-rsa \
     -o Ciphers=+aes128-cbc,3des-cbc \
     -o MACs=+hmac-sha1 \
@@ -210,7 +259,7 @@ VIRTSC="$HOME/virtsc"
 cd "$VIRTSC" || exit 1
 exec scp -P 2222 \
     -o KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1 \
-    -o HostKeyAlgorithms=+ssh-rsa,ssh-dss \
+    -o HostKeyAlgorithms=+ssh-rsa \
     -o PubkeyAcceptedAlgorithms=+ssh-rsa \
     -o Ciphers=+aes128-cbc,3des-cbc \
     -o MACs=+hmac-sha1 \
@@ -238,7 +287,7 @@ Save the following as **`C:\IS1\SSH-VirTSC.ps1`**:
 ```powershell
 ssh.exe -p 2222 `
   -o KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1 `
-  -o HostKeyAlgorithms=+ssh-rsa,ssh-dss `
+  -o HostKeyAlgorithms=+ssh-rsa `
   -o PubkeyAcceptedAlgorithms=+ssh-rsa `
   -o Ciphers=+aes128-cbc,3des-cbc `
   -o MACs=+hmac-sha1 `
@@ -262,7 +311,7 @@ $GuestFiles = @(
 $SshOptions = @(
     '-P', '2222',
     '-o', 'KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1',
-    '-o', 'HostKeyAlgorithms=+ssh-rsa,ssh-dss',
+    '-o', 'HostKeyAlgorithms=+ssh-rsa',
     '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa',
     '-o', 'Ciphers=+aes128-cbc,3des-cbc',
     '-o', 'MACs=+hmac-sha1',
@@ -295,6 +344,19 @@ Every script in `C:\IS1` is run the same way, with `powershell.exe -NoProfile -E
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File C:\IS1\Run-VirTSC.ps1
 ```
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+```bash
+~/i1/run.sh
+```
+macOS may ask for permission to use the microphone or to accept incoming network connections. QEMU doesn't need either, so you can deny both. The port forward listens only on `127.0.0.1`.
+
+Booting is slower than on Linux or Windows, since this is TCG emulation with no hardware acceleration for i386 on macOS. It should still run fine once it's up.
+
+> **Mac keyboard note:** QEMU's **Ctrl+Alt** shortcuts are **Control+Option** on a Mac keyboard. Click in the QEMU window to capture the keyboard and mouse, and press **Control+Option+G** to release them.
 </details>
 
 Then head straight to the guest setup.
