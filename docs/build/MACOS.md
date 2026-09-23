@@ -80,7 +80,7 @@ Check that pkg-config can find it:
 ```bash
 PKG_CONFIG_PATH="$HOME/opt/osmesa/lib/pkgconfig" pkg-config --modversion osmesa
 ```
-This should print a version such as `25.0.7`.
+This should print a version such as `8.0.0`.
 
 > **If the LLVM build gives you trouble,** you can build with the slower **softpipe** driver, which doesn't need LLVM. Replace `-Dgallium-drivers=llvmpipe`, `-Dllvm=enabled` and `-Dshared-llvm=disabled` with `-Dgallium-drivers=softpipe -Dllvm=disabled`, then run `meson setup --wipe build ...` again.
 

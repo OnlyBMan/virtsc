@@ -167,7 +167,7 @@ PKG_CONFIG_PATH=C:/vtsc-build/osmesa/lib/pkgconfig \
   pkg-config --modversion osmesa
 ```
 
-The version should be **`24.3.4`**. The Mesa configuration summary should report:
+The version should be **`8.0.0`**. The Mesa configuration summary should report:
 
 ```text
 Platform: windows
