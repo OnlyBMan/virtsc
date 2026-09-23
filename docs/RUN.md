@@ -27,12 +27,6 @@ mkfifo ~/i1/is1-in-v ~/i1/is1-in-a
 The build guide already created `C:\IS1`. Place your image at `C:\IS1\weatherscan.img`.
 
 The build is finished, so **everything from here runs from a normal, non-elevated PowerShell window** unless a step says otherwise. The Windows build does **not** support the input FIFOs used on Linux, so there are no `is1-in-v` or `is1-in-a` files to create.
-
-**Optional: enabling WHPX acceleration.** The launcher tries **WHPX** first and falls back to **TCG** if WHPX is unavailable. To enable WHPX, open **PowerShell as Administrator** and run:
-```powershell
-DISM.exe /Online /Enable-Feature /FeatureName:HypervisorPlatform /All
-```
-**Reboot Windows after enabling the feature.** The [QEMU WHPX documentation](https://www.qemu.org/docs/master/system/whpx.html) is available for reference.
 </details>
 
 # Step 2: Choosing a disk format
@@ -155,7 +149,6 @@ $QemuArgs = @(
     '-global', 'i440FX.agp=on',
     '-global', 'i440FX.agp-aperture-size=128M',
     '-global', 'piix3-ide.force-bus-master=on',
-    '-accel', 'whpx',
     '-accel', 'tcg',
     '-cpu', 'pentium3',
     '-m', '512',
@@ -183,7 +176,7 @@ try {
     Pop-Location
 }
 ```
-The two **`-accel`** entries tell QEMU to try WHPX and continue with TCG if WHPX is unavailable. QMP listens on **`127.0.0.1:4444`**.
+The VM runs under **TCG** (software emulation), as on macOS. QMP listens on **`127.0.0.1:4444`**.
 </details>
 
 <details>
@@ -354,7 +347,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 ```
 macOS may ask for permission to use the microphone or to accept incoming network connections. QEMU doesn't need either, so you can deny both. The port forward listens only on `127.0.0.1`.
 
-Booting is slower than on Linux or Windows, since this is TCG emulation with no hardware acceleration for i386 on macOS. It should still run fine once it's up.
+Booting is slower than on Linux, since this is TCG emulation with no hardware acceleration for i386 on macOS. It should still run fine once it's up.
 
 > **Mac keyboard note:** QEMU's **Ctrl+Alt** shortcuts are **Control+Option** on a Mac keyboard. Click in the QEMU window to capture the keyboard and mouse, and press **Control+Option+G** to release them.
 </details>
