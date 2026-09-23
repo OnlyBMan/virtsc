@@ -222,10 +222,16 @@ def gen_ops_h(funcs):
             names.append(f["name"])
             n += 1
     o.append("\n#define IS1GL_OP_COUNT %d\n\n" % n)
-    o.append("#define IS1GL_OP_NAMES { \\\n")
-    for nm in names:
-        o.append("    \"%s\", \\\n" % nm)
-    o.append("}\n\n#endif\n")
+    # The FreeBSD guest's old preprocessor cannot splice a continued macro
+    # after a Windows checkout changes this generated header to CRLF.
+    # Use short, single-line macros so long physical lines are avoided too.
+    chunks = [names[i:i + 8] for i in range(0, len(names), 8)]
+    for i, chunk in enumerate(chunks):
+        o.append('#define IS1GL_OP_NAMES_%d %s\n' %
+                 (i, ", ".join('"%s"' % nm for nm in chunk)))
+    o.append("#define IS1GL_OP_NAMES { %s }\n" %
+             ", ".join("IS1GL_OP_NAMES_%d" % i for i in range(len(chunks))))
+    o.append("\n#endif\n")
     return "".join(o)
 
 
@@ -400,10 +406,12 @@ def main():
     sys.stderr.write("%d entry points parsed: %d marshalled, %d local, %d stubs\n"
                      % (len(funcs), n_m, n_l, len(funcs) - n_m - n_l))
 
-    open(os.path.join(outdir, "is1gl_ops.h"), "w").write(gen_ops_h(funcs))
-    open(os.path.join(outdir, "is1gl_gen_guest.h"), "w").write(gen_guest(funcs))
-    open(os.path.join(qemudir, "is1gl_replay.h"), "w").write(gen_host(funcs))
-    open(os.path.join(qemudir, "is1gl_ops.h"), "w").write(gen_ops_h(funcs))
+    # Keep backslash-continued macros usable by the guest's old preprocessor,
+    # even when this generator runs on Windows.
+    open(os.path.join(outdir, "is1gl_ops.h"), "w", newline="\n").write(gen_ops_h(funcs))
+    open(os.path.join(outdir, "is1gl_gen_guest.h"), "w", newline="\n").write(gen_guest(funcs))
+    open(os.path.join(qemudir, "is1gl_replay.h"), "w", newline="\n").write(gen_host(funcs))
+    open(os.path.join(qemudir, "is1gl_ops.h"), "w", newline="\n").write(gen_ops_h(funcs))
 
 
 if __name__ == "__main__":
