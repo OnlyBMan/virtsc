@@ -24,6 +24,13 @@
  *  3. Only glReadPixels waits, and it waits by spinning briefly on a word in
  *     ordinary memory before falling back to nanosleep. Phase 1 measured the
  *     host answering in 7 us and the sleep quantum at 1000 us.
+ *
+ * And one rule learned the hard way:
+ *
+ *  4. Every entry point is indivisible, and belongs to the calling thread's
+ *     context. renderd calls GL from two threads with a context each, and
+ *     libc_r can switch threads at any instruction. See "threads and
+ *     contexts" below.
  */
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -39,6 +46,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -300,6 +308,231 @@ static unsigned int agp_phys(const void *ptr)
 	return 0;
 }
 
+/* ------------------------------------------------- threads and contexts
+ *
+ * renderd drives GL from two threads, each with a GLX context of its own. A
+ * loader thread creates the textures, glyph pages and display lists in one;
+ * the renderer draws in the other, which shares the loader's textures and
+ * lists. Each thread makes its context current once and keeps it, so the
+ * two contexts' calls arrive interleaved with nothing to say whose is whose.
+ *
+ * The first version of this library assumed that libc_r only switches
+ * threads where one blocks, and kept one set of state for everybody. libc_r
+ * also preempts a thread whose timeslice has run out, at any instruction.
+ * Landing between the loader's glBindTexture and its upload, that sent a
+ * glyph or an image into whatever texture the renderer had bound: text came
+ * out as solid blocks. Landing while the loader was copying an image into
+ * the ring, it let the renderer ring the doorbell over a half-written
+ * record, and the host uploaded the rest of it from stale ring contents:
+ * noise. Neither is a GL error, so neither was ever reported.
+ *
+ * So now:
+ *  - every entry point runs under gl_lock, which makes the call - its state
+ *    updates and its whole record - indivisible;
+ *  - the state answered locally belongs to the calling thread's context;
+ *  - whenever a record comes from a different context than the one before
+ *    it, a MAKE_CURRENT goes on the ring first, and the host replays each
+ *    guest context in a host context of its own.
+ */
+#define NTARGETS 3
+static const GLenum tex_targets[NTARGETS] = {
+	GL_TEXTURE_2D, GL_TEXTURE_RECTANGLE_NV, GL_TEXTURE_1D
+};
+
+/* The attribute stacks. The application pushes GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT
+ * 257,027 times a run, which restores neither the texture binding nor the
+ * current colour - so tracking the mask, rather than invalidating on every
+ * pop, is what makes the cache worth having. glcache found this first. */
+#define ATTRIB_DEPTH 32
+
+/*
+ * Everything the application can ask about, answered here. glcache proved
+ * the two hot ones can be tracked exactly; this is the same idea with the
+ * rest of what notes/is1gl-phase0.md found the app queries. All of it is
+ * per context in GL, including display-list compile mode, which does not
+ * read back wrong so much as redirect every call after it.
+ */
+struct glstate {
+	GLuint  tex[NTARGETS];      /* binding per target - the app uses two */
+	GLfloat color[4];
+	GLint   viewport[4];
+	GLint   pack_row_length, pack_alignment, pack_skip_rows, pack_skip_pixels;
+	GLint   pack_invert;        /* GL_PACK_INVERT_MESA, ours to honour */
+	GLint   unpack_row_length, unpack_alignment;
+	GLint   unpack_skip_rows, unpack_skip_pixels;
+	GLint   unpack_lsb_first, unpack_swap_bytes;
+	GLenum  error;
+	GLenum  matrix_mode;
+	int     in_begin;
+	int     in_list;
+
+	struct {
+		GLbitfield mask;
+		GLfloat    color[4];
+		GLuint     tex[NTARGETS];
+	} attrib_stack[ATTRIB_DEPTH];
+	int attrib_sp;
+
+	struct {
+		GLbitfield mask;
+		GLint      pack_row_length, pack_alignment, pack_invert;
+		GLint      unpack_row_length, unpack_alignment;
+		GLint      unpack_skip_rows, unpack_skip_pixels;
+	} client_stack[ATTRIB_DEPTH];
+	int client_sp;
+};
+
+struct is1gl_ctx {
+	int id;
+	Display *dpy;
+	unsigned int w, h;      /* its drawable, repeated in each MAKE_CURRENT */
+	int bound;              /* made current at least once, so w, h are real */
+	struct glstate st;
+};
+
+/* Names belong to the share group, which is every context there is. */
+static GLuint next_texture = 1, next_list = 1;
+static int    next_ctx_id = 1;
+
+/* Which context each thread has current. renderd has five threads. */
+#define MAX_THREADS 16
+static struct {
+	void              *thr;
+	struct is1gl_ctx  *ctx;
+	GLXDrawable        drawable;
+} bindings[MAX_THREADS];
+
+/* Valid only under gl_lock, and set by gl_enter(). */
+static struct is1gl_ctx *cur;       /* the calling thread's context, or 0 */
+static struct glstate   *S;         /* its state, or no_ctx's */
+static struct glstate    no_ctx;    /* for calls made with nothing current */
+
+static struct is1gl_ctx *emitted;   /* whose records the host is replaying */
+static unsigned long n_switches, n_contended;
+
+/*
+ * Weak, so a process linked against plain libc rather than libc_r still
+ * loads this library; it then has one thread, and every caller is it.
+ */
+#pragma weak pthread_self
+
+static void *thr_self(void)
+{
+	return pthread_self ? (void *)pthread_self() : (void *)1;
+}
+
+static void state_init(struct glstate *g)
+{
+	memset(g, 0, sizeof *g);
+	g->pack_alignment = 4;
+	g->unpack_alignment = 4;
+	g->matrix_mode = GL_MODELVIEW;
+	g->error = GL_NO_ERROR;
+}
+
+static int binding_slot(void *thr)
+{
+	int i;
+
+	for (i = 0; i < MAX_THREADS; i++)
+		if (bindings[i].thr == thr) return i;
+	return -1;
+}
+
+static struct is1gl_ctx *thread_ctx(void *thr)
+{
+	int i = binding_slot(thr);
+
+	return i >= 0 ? bindings[i].ctx : 0;
+}
+
+/*
+ * gl_lock. libc_r runs every thread on one kernel thread, so the only way to
+ * lose the processor mid-call is its timeslice signal, and a single
+ * cmpxchg cannot be split by a signal. The lock prefix is not needed for
+ * that; it is there so the lock stays correct on anything else.
+ *
+ * Waiting is by nanosleep rather than sched_yield: a yield hands the CPU to
+ * the next runnable thread of the same or higher priority, which may never
+ * be the holder, whereas a sleeping thread is not runnable at all. The
+ * holder only ever holds it for one GL call, so this is rare.
+ */
+static void *volatile gl_owner;
+static int gl_depth;
+
+static void *cas_ptr(void *volatile *p, void *old, void *new)
+{
+	void *prev;
+
+	__asm __volatile("lock; cmpxchgl %2, %1"
+	    : "=a" (prev), "=m" (*p)
+	    : "r" (new), "0" (old), "m" (*p)
+	    : "memory", "cc");
+	return prev;
+}
+
+static void gl_enter(void)
+{
+	void *me = thr_self();
+
+	if (gl_owner == me) {           /* glXWaitGL -> glFinish, and so on */
+		gl_depth++;
+		return;
+	}
+	if (cas_ptr(&gl_owner, 0, me) != 0) {
+		struct timespec ts;
+
+		n_contended++;
+		ts.tv_sec = 0;
+		ts.tv_nsec = 100000;
+		do {
+			nanosleep(&ts, 0);
+		} while (cas_ptr(&gl_owner, 0, me) != 0);
+	}
+	gl_depth = 1;
+	cur = thread_ctx(me);
+	S = cur ? &cur->st : &no_ctx;
+}
+
+static void gl_leave(void)
+{
+	if (--gl_depth == 0)
+		gl_owner = 0;
+}
+
+static int target_index(GLenum t)
+{
+	int i;
+	for (i = 0; i < NTARGETS; i++)
+		if (tex_targets[i] == t) return i;
+	return -1;
+}
+
+static void set_error(GLenum e)
+{
+	if (S->error == GL_NO_ERROR) S->error = e;
+}
+
+/*
+ * IS1GL_STRESS: stall one context at the points where a thread switch used
+ * to do damage, so the fix can be proved rather than inferred from quiet
+ * runs. A bitmask - 1: after each glBindTexture, where the other thread then
+ * binds its own; 2: halfway through copying a large image into the ring.
+ * The context is IS1GL_STRESS_CTX, default 1, which in renderd is the
+ * loader's; the stall is IS1GL_STRESS_MS, default 20. A test mode only.
+ */
+static int stress_mask, stress_ctx = 1, stress_ms = 20;
+
+static void stress(int what, struct is1gl_ctx *c)
+{
+	struct timespec ts;
+
+	if (!(stress_mask & what) || !c || c->id != stress_ctx) return;
+	ts.tv_sec = stress_ms / 1000;
+	ts.tv_nsec = (stress_ms % 1000) * 1000000L;
+	nanosleep(&ts, 0);
+}
+
 /* ------------------------------------------------------------- the ring */
 
 static volatile unsigned int *dev;      /* the device's MMIO page */
@@ -490,24 +723,17 @@ static void ring_stall(unsigned int len, int *wrap)
  * Reserve a record and return a pointer to its payload. The only thing on
  * the hot path, and it does no I/O and no allocation.
  *
- * There is no lock on `head`, and that is deliberate rather than an
- * oversight. renderd has five threads, but the guest is libc_r - N:1,
- * cooperatively scheduled - and a thread only yields when it *blocks*
- * (Phase 1 established that a non-blocking syscall does not switch either).
- * Nothing between entering this function and returning the payload pointer
- * can block: the wrap marker and the record head are stores to mapped
- * memory, and the doorbell is a store to a mapped MMIO page. So a
- * reservation is atomic with respect to the other threads by construction.
+ * Called only under gl_lock, which the caller holds until the payload is
+ * complete. That is what keeps `head` consistent, and what stops another
+ * thread's doorbell from handing the host a record still being written -
+ * not, as this once said, libc_r only switching threads where one blocks.
  *
- * The one path here that can yield is ring_stall(), and it yields *before*
- * reserving anything, so a thread that runs meanwhile simply advances head
- * and the stalled thread re-reads it.
- *
- * NONE OF THIS SURVIVES 1:1 THREADING. If this library is ever built for a
- * FreeBSD with libthr, `head` needs a real lock. threading-constraint.md
- * explains why that port is ruled out, which is the only reason this is
- * safe.
+ * If this record comes from a different context than the last one, the
+ * host is told first. That happens here rather than in gl_enter() so that
+ * calls answered locally, which are most of the glGets, cost no record.
  */
+static void emit_switch(void);
+
 static unsigned char *ring_record(unsigned int opcode, long payload)
 {
 	unsigned int len = (unsigned int)((8 + payload + 7) & ~7L);
@@ -515,6 +741,10 @@ static unsigned char *ring_record(unsigned int opcode, long payload)
 	int wrap = 0;
 
 	if (!transport_up) return 0;
+
+	if (cur != emitted && cur && cur->bound &&
+	    opcode != IS1GL_OP_MAKE_CURRENT)
+		emit_switch();
 
 	if (len + RING_SLACK > ring_size) {
 		static int warned;
@@ -558,6 +788,25 @@ static void put_u32(unsigned char *p, unsigned int v) { memcpy(p, &v, 4); }
 static void put_i32(unsigned char *p, int v)          { memcpy(p, &v, 4); }
 static void put_f32(unsigned char *p, float v)        { memcpy(p, &v, 4); }
 static void put_f64(unsigned char *p, double v)       { memcpy(p, &v, 8); }
+
+/* MAKE_CURRENT: context id, then its drawable's size. */
+static int emit_make_current(struct is1gl_ctx *c)
+{
+	unsigned char *r = ring_record(IS1GL_OP_MAKE_CURRENT, 12);
+
+	if (!r) return -1;
+	put_u32(r + 0, (unsigned int)c->id);
+	put_u32(r + 4, c->w);
+	put_u32(r + 8, c->h);
+	emitted = c;
+	return 0;
+}
+
+static void emit_switch(void)
+{
+	if (emit_make_current(cur) == 0)
+		n_switches++;
+}
 
 static unsigned int emit_fence(void)
 {
@@ -617,83 +866,6 @@ static void wait_fence(unsigned int seq)
 	}
 	wait_us_total += now_us() - t0;
 }
-
-/* --------------------------------------------------------- tracked state
- *
- * Everything the application can ask about, answered here. glcache proved
- * the two hot ones can be tracked exactly; this is the same idea with the
- * rest of what notes/is1gl-phase0.md found the app queries.
- */
-#define NTARGETS 3
-static const GLenum tex_targets[NTARGETS] = {
-	GL_TEXTURE_2D, GL_TEXTURE_RECTANGLE_NV, GL_TEXTURE_1D
-};
-
-static struct {
-	GLuint  tex[NTARGETS];      /* binding per target - the app uses two */
-	GLfloat color[4];
-	GLint   viewport[4];
-	GLint   pack_row_length, pack_alignment, pack_skip_rows, pack_skip_pixels;
-	GLint   pack_invert;        /* GL_PACK_INVERT_MESA, ours to honour */
-	GLint   unpack_row_length, unpack_alignment;
-	GLint   unpack_skip_rows, unpack_skip_pixels;
-	GLint   unpack_lsb_first, unpack_swap_bytes;
-	GLenum  error;
-	GLenum  matrix_mode;
-	int     in_begin;
-	int     in_list;
-	GLuint  next_texture, next_list;
-} st;
-
-/*
- * GL_VIEWPORT is context state, not drawable or share-group state.  renderd
- * creates two sharing contexts, and some product flavours set a viewport in
- * only one of them.  Keep the active value in st for the hot glGet path, but
- * retain a copy on each context so glXMakeCurrent can restore it.
- */
-struct is1gl_ctx {
-	int id;
-	Display *dpy;
-	GLint viewport[4];
-	int viewport_valid;
-};
-
-static int next_ctx_id = 1;
-static struct is1gl_ctx *current_ctx;
-static GLXDrawable current_drawable;
-
-static int target_index(GLenum t)
-{
-	int i;
-	for (i = 0; i < NTARGETS; i++)
-		if (tex_targets[i] == t) return i;
-	return -1;
-}
-
-static void set_error(GLenum e)
-{
-	if (st.error == GL_NO_ERROR) st.error = e;
-}
-
-/* The attribute stacks. The application pushes GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT
- * 257,027 times a run, which restores neither the texture binding nor the
- * current colour - so tracking the mask, rather than invalidating on every
- * pop, is what makes the cache worth having. glcache found this first. */
-#define ATTRIB_DEPTH 32
-static struct {
-	GLbitfield mask;
-	GLfloat    color[4];
-	GLuint     tex[NTARGETS];
-} attrib_stack[ATTRIB_DEPTH];
-static int attrib_sp;
-
-static struct {
-	GLbitfield mask;
-	GLint      pack_row_length, pack_alignment, pack_invert;
-	GLint      unpack_row_length, unpack_alignment;
-	GLint      unpack_skip_rows, unpack_skip_pixels;
-} client_stack[ATTRIB_DEPTH];
-static int client_sp;
 
 /* --------------------------------------------------------- image helpers */
 
@@ -767,17 +939,20 @@ static void is1gl_pack_image(unsigned char *dst, const void *src,
 	}
 	if (!src || bpp <= 0 || w <= 0 || h <= 0) return;
 
-	row_pixels = st.unpack_row_length > 0 ? st.unpack_row_length : w;
+	row_pixels = S->unpack_row_length > 0 ? S->unpack_row_length : w;
 	if (row_pixels < w) row_pixels = w;
 	stride = row_pixels * bpp;
-	if (st.unpack_alignment > 1)
-		stride = (stride + st.unpack_alignment - 1) &
-		         ~(long)(st.unpack_alignment - 1);
-	s += (long)st.unpack_skip_rows * stride +
-	     (long)st.unpack_skip_pixels * bpp;
+	if (S->unpack_alignment > 1)
+		stride = (stride + S->unpack_alignment - 1) &
+		         ~(long)(S->unpack_alignment - 1);
+	s += (long)S->unpack_skip_rows * stride +
+	     (long)S->unpack_skip_pixels * bpp;
 
-	for (row = 0; row < h; row++)
+	for (row = 0; row < h; row++) {
+		if (row == h / 2 && (long)w * h * bpp > 65536)
+			stress(2, cur);
 		memcpy(dst + row * (long)w * bpp, s + row * stride, (long)w * bpp);
+	}
 }
 
 /* ------------------------------------------------------------- the stubs */
@@ -794,71 +969,93 @@ static void is1gl_stub(int idx)
 	}
 }
 
-/* ------------------------------------------- hand-written GL entry points */
+/* ------------------------------------------- hand-written GL entry points
+ *
+ * Each takes gl_lock for its whole length; see "threads and contexts". The
+ * generated ones in is1gl_gen_guest.h do the same.
+ */
 
 void glEnable(GLenum cap)
 {
+	gl_enter();
 	emit_glEnable(cap);
+	gl_leave();
 }
 
 void glDisable(GLenum cap)
 {
+	gl_enter();
 	emit_glDisable(cap);
+	gl_leave();
 }
 
 void glViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 {
-	st.viewport[0] = x; st.viewport[1] = y;
-	st.viewport[2] = width; st.viewport[3] = height;
-	if (current_ctx) {
-		memcpy(current_ctx->viewport, st.viewport,
-		       sizeof current_ctx->viewport);
-		current_ctx->viewport_valid = 1;
-	}
+	gl_enter();
+	S->viewport[0] = x; S->viewport[1] = y;
+	S->viewport[2] = width; S->viewport[3] = height;
 	emit_glViewport(x, y, width, height);
+	gl_leave();
 }
 
 void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
 {
-	if (!st.in_list) {
-		st.color[0] = r; st.color[1] = g; st.color[2] = b; st.color[3] = a;
+	gl_enter();
+	if (!S->in_list) {
+		S->color[0] = r; S->color[1] = g; S->color[2] = b; S->color[3] = a;
 	}
 	emit_glColor4f(r, g, b, a);
+	gl_leave();
 }
 
 void glBindTexture(GLenum target, GLuint texture)
 {
-	int i = target_index(target);
+	struct is1gl_ctx *c;
+	int i;
 
+	gl_enter();
+	i = target_index(target);
 	/* Inside glNewList the call is compiled, not executed, so it does not
 	 * change the current binding. glcache got this wrong once. */
-	if (i >= 0 && !st.in_list)
-		st.tex[i] = texture;
+	if (i >= 0 && !S->in_list)
+		S->tex[i] = texture;
 	emit_glBindTexture(target, texture);
+	c = cur;
+	gl_leave();
+	/* Outside the lock, so the other thread can run and bind its own. */
+	stress(1, c);
 }
 
 void glBegin(GLenum mode)
 {
-	st.in_begin = 1;
+	gl_enter();
+	S->in_begin = 1;
 	emit_glBegin(mode);
+	gl_leave();
 }
 
 void glEnd(void)
 {
-	st.in_begin = 0;
+	gl_enter();
+	S->in_begin = 0;
 	emit_glEnd();
+	gl_leave();
 }
 
 void glNewList(GLuint list, GLenum mode)
 {
-	st.in_list = 1;
+	gl_enter();
+	S->in_list = 1;
 	emit_glNewList(list, mode);
+	gl_leave();
 }
 
 void glEndList(void)
 {
-	st.in_list = 0;
+	gl_enter();
+	S->in_list = 0;
 	emit_glEndList();
+	gl_leave();
 }
 
 void glCallList(GLuint list)
@@ -870,72 +1067,89 @@ void glCallList(GLuint list)
 	 * because the next glBindTexture sets it again.
 	 */
 	int i;
-	for (i = 0; i < NTARGETS; i++) st.tex[i] = 0xffffffffu;
+
+	gl_enter();
+	for (i = 0; i < NTARGETS; i++) S->tex[i] = 0xffffffffu;
 	emit_glCallList(list);
+	gl_leave();
 }
 
 void glPushAttrib(GLbitfield mask)
 {
-	if (attrib_sp < ATTRIB_DEPTH) {
-		attrib_stack[attrib_sp].mask = mask;
-		memcpy(attrib_stack[attrib_sp].color, st.color, sizeof st.color);
-		memcpy(attrib_stack[attrib_sp].tex, st.tex, sizeof st.tex);
-		attrib_sp++;
+	gl_enter();
+	if (S->attrib_sp < ATTRIB_DEPTH) {
+		S->attrib_stack[S->attrib_sp].mask = mask;
+		memcpy(S->attrib_stack[S->attrib_sp].color, S->color,
+		       sizeof S->color);
+		memcpy(S->attrib_stack[S->attrib_sp].tex, S->tex, sizeof S->tex);
+		S->attrib_sp++;
 	} else {
 		set_error(GL_STACK_OVERFLOW);
 	}
 	emit_glPushAttrib(mask);
+	gl_leave();
 }
 
 void glPopAttrib(void)
 {
-	if (attrib_sp > 0) {
-		attrib_sp--;
-		if (attrib_stack[attrib_sp].mask & GL_CURRENT_BIT)
-			memcpy(st.color, attrib_stack[attrib_sp].color, sizeof st.color);
-		if (attrib_stack[attrib_sp].mask & GL_TEXTURE_BIT)
-			memcpy(st.tex, attrib_stack[attrib_sp].tex, sizeof st.tex);
+	gl_enter();
+	if (S->attrib_sp > 0) {
+		S->attrib_sp--;
+		if (S->attrib_stack[S->attrib_sp].mask & GL_CURRENT_BIT)
+			memcpy(S->color, S->attrib_stack[S->attrib_sp].color,
+			       sizeof S->color);
+		if (S->attrib_stack[S->attrib_sp].mask & GL_TEXTURE_BIT)
+			memcpy(S->tex, S->attrib_stack[S->attrib_sp].tex,
+			       sizeof S->tex);
 	} else {
 		set_error(GL_STACK_UNDERFLOW);
 	}
 	emit_glPopAttrib();
+	gl_leave();
 }
 
 void glPushClientAttrib(GLbitfield mask)
 {
-	if (client_sp < ATTRIB_DEPTH) {
-		client_stack[client_sp].mask = mask;
-		client_stack[client_sp].pack_row_length = st.pack_row_length;
-		client_stack[client_sp].pack_alignment = st.pack_alignment;
-		client_stack[client_sp].pack_invert = st.pack_invert;
-		client_stack[client_sp].unpack_row_length = st.unpack_row_length;
-		client_stack[client_sp].unpack_alignment = st.unpack_alignment;
-		client_stack[client_sp].unpack_skip_rows = st.unpack_skip_rows;
-		client_stack[client_sp].unpack_skip_pixels = st.unpack_skip_pixels;
-		client_sp++;
+	gl_enter();
+	if (S->client_sp < ATTRIB_DEPTH) {
+		int n = S->client_sp;
+
+		S->client_stack[n].mask = mask;
+		S->client_stack[n].pack_row_length = S->pack_row_length;
+		S->client_stack[n].pack_alignment = S->pack_alignment;
+		S->client_stack[n].pack_invert = S->pack_invert;
+		S->client_stack[n].unpack_row_length = S->unpack_row_length;
+		S->client_stack[n].unpack_alignment = S->unpack_alignment;
+		S->client_stack[n].unpack_skip_rows = S->unpack_skip_rows;
+		S->client_stack[n].unpack_skip_pixels = S->unpack_skip_pixels;
+		S->client_sp++;
 	} else {
 		set_error(GL_STACK_OVERFLOW);
 	}
 	emit_glPushClientAttrib(mask);
+	gl_leave();
 }
 
 void glPopClientAttrib(void)
 {
-	if (client_sp > 0) {
-		client_sp--;
-		if (client_stack[client_sp].mask & GL_CLIENT_PIXEL_STORE_BIT) {
-			st.pack_row_length = client_stack[client_sp].pack_row_length;
-			st.pack_alignment = client_stack[client_sp].pack_alignment;
-			st.pack_invert = client_stack[client_sp].pack_invert;
-			st.unpack_row_length = client_stack[client_sp].unpack_row_length;
-			st.unpack_alignment = client_stack[client_sp].unpack_alignment;
-			st.unpack_skip_rows = client_stack[client_sp].unpack_skip_rows;
-			st.unpack_skip_pixels = client_stack[client_sp].unpack_skip_pixels;
+	gl_enter();
+	if (S->client_sp > 0) {
+		int n = --S->client_sp;
+
+		if (S->client_stack[n].mask & GL_CLIENT_PIXEL_STORE_BIT) {
+			S->pack_row_length = S->client_stack[n].pack_row_length;
+			S->pack_alignment = S->client_stack[n].pack_alignment;
+			S->pack_invert = S->client_stack[n].pack_invert;
+			S->unpack_row_length = S->client_stack[n].unpack_row_length;
+			S->unpack_alignment = S->client_stack[n].unpack_alignment;
+			S->unpack_skip_rows = S->client_stack[n].unpack_skip_rows;
+			S->unpack_skip_pixels = S->client_stack[n].unpack_skip_pixels;
 		}
 	} else {
 		set_error(GL_STACK_UNDERFLOW);
 	}
 	emit_glPopClientAttrib();
+	gl_leave();
 }
 
 /*
@@ -946,21 +1160,25 @@ void glPopClientAttrib(void)
  * GL_PACK_INVERT_MESA is honoured natively by the host's Mesa (Phase 0d), so
  * it travels with the readback instead of being emulated by reversing 480
  * rows by hand.
+ *
+ * This state is per context too, and it matters more than most: the loader
+ * uploads glyphs with an alignment of 1 while the renderer uploads video
+ * with a SKIP_ROWS of 2048, and each packs its image with its own settings.
  */
 static void store_i(GLenum pname, GLint param)
 {
 	switch (pname) {
-	case GL_PACK_ROW_LENGTH:    st.pack_row_length = param; break;
-	case GL_PACK_ALIGNMENT:     st.pack_alignment = param; break;
-	case GL_PACK_SKIP_ROWS:     st.pack_skip_rows = param; break;
-	case GL_PACK_SKIP_PIXELS:   st.pack_skip_pixels = param; break;
-	case GL_PACK_INVERT_MESA:   st.pack_invert = (param != 0); break;
-	case GL_UNPACK_ROW_LENGTH:  st.unpack_row_length = param; break;
-	case GL_UNPACK_ALIGNMENT:   st.unpack_alignment = param; break;
-	case GL_UNPACK_SKIP_ROWS:   st.unpack_skip_rows = param; break;
-	case GL_UNPACK_SKIP_PIXELS: st.unpack_skip_pixels = param; break;
-	case GL_UNPACK_LSB_FIRST:   st.unpack_lsb_first = param; break;
-	case GL_UNPACK_SWAP_BYTES:  st.unpack_swap_bytes = param; break;
+	case GL_PACK_ROW_LENGTH:    S->pack_row_length = param; break;
+	case GL_PACK_ALIGNMENT:     S->pack_alignment = param; break;
+	case GL_PACK_SKIP_ROWS:     S->pack_skip_rows = param; break;
+	case GL_PACK_SKIP_PIXELS:   S->pack_skip_pixels = param; break;
+	case GL_PACK_INVERT_MESA:   S->pack_invert = (param != 0); break;
+	case GL_UNPACK_ROW_LENGTH:  S->unpack_row_length = param; break;
+	case GL_UNPACK_ALIGNMENT:   S->unpack_alignment = param; break;
+	case GL_UNPACK_SKIP_ROWS:   S->unpack_skip_rows = param; break;
+	case GL_UNPACK_SKIP_PIXELS: S->unpack_skip_pixels = param; break;
+	case GL_UNPACK_LSB_FIRST:   S->unpack_lsb_first = param; break;
+	case GL_UNPACK_SWAP_BYTES:  S->unpack_swap_bytes = param; break;
 	case GL_UNPACK_CLIENT_STORAGE_APPLE: break;   /* a hint; legal to ignore */
 	default:
 		set_error(GL_INVALID_ENUM);
@@ -968,22 +1186,35 @@ static void store_i(GLenum pname, GLint param)
 	}
 }
 
-void glPixelStorei(GLenum pname, GLint param) { store_i(pname, param); }
-void glPixelStoref(GLenum pname, GLfloat param) { store_i(pname, (GLint)param); }
+void glPixelStorei(GLenum pname, GLint param)
+{
+	gl_enter();
+	store_i(pname, param);
+	gl_leave();
+}
+
+void glPixelStoref(GLenum pname, GLfloat param)
+{
+	gl_enter();
+	store_i(pname, (GLint)param);
+	gl_leave();
+}
 
 void glTexImage2D(GLenum target, GLint level, GLint internalFormat,
                   GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid *pixels)
 {
+	gl_enter();
 	if (!pixels) {
 		/* A null pointer means "allocate, do not initialise". Send it
 		 * with a zero-length image rather than reading from NULL. */
 		emit_glTexImage2D(target, level, internalFormat, width, height,
 		                  border, format, GL_NONE, pixels);
-		return;
+	} else {
+		emit_glTexImage2D(target, level, internalFormat, width, height,
+		                  border, format, type, pixels);
 	}
-	emit_glTexImage2D(target, level, internalFormat, width, height, border,
-	                  format, type, pixels);
+	gl_leave();
 }
 
 void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
@@ -991,15 +1222,19 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
                      const GLvoid *pixels)
 {
 	if (!pixels) return;
+	gl_enter();
 	emit_glTexSubImage2D(target, level, xoffset, yoffset, width, height,
 	                     format, type, pixels);
+	gl_leave();
 }
 
 void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type,
                   const GLvoid *pixels)
 {
 	if (!pixels) return;
+	gl_enter();
 	emit_glDrawPixels(width, height, format, type, pixels);
+	gl_leave();
 }
 
 /*
@@ -1007,14 +1242,18 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type,
  * host writes the finished frame straight into the AGP buffer the
  * Thunderstorm DMAs from, so the 1.38 MB never crosses a socket and there is
  * no readback to invert.
+ *
+ * The wait is outside gl_lock. The other thread may queue calls meanwhile;
+ * they are behind the fence, so they cannot delay it.
  */
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
                   GLenum format, GLenum type, GLvoid *pixels)
 {
-	unsigned int phys = agp_phys(pixels);
+	unsigned int phys, seq;
 	unsigned char *r;
-	unsigned int seq;
 
+	gl_enter();
+	phys = agp_phys(pixels);
 	if (!phys) {
 		/*
 		 * Not AGP memory, so the host cannot write it directly. renderd
@@ -1025,11 +1264,15 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
 		if (!warned++)
 			say("glReadPixels into non-AGP memory %p - ignored\n", pixels);
 		set_error(GL_INVALID_OPERATION);
+		gl_leave();
 		return;
 	}
 
 	r = ring_record(IS1GL_OP_READPIXELS, 36);
-	if (!r) return;
+	if (!r) {
+		gl_leave();
+		return;
+	}
 	put_i32(r + 0, x);
 	put_i32(r + 4, y);
 	put_i32(r + 8, width);
@@ -1037,32 +1280,43 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
 	put_u32(r + 16, format);
 	put_u32(r + 20, type);
 	put_u32(r + 24, phys);
-	put_i32(r + 28, st.pack_row_length);
-	put_i32(r + 32, st.pack_invert);
+	put_i32(r + 28, S->pack_row_length);
+	put_i32(r + 32, S->pack_invert);
 
 	seq = emit_fence();
 	ring_flush();
+	gl_leave();
 	wait_fence(seq);
 }
 
 void glFinish(void)
 {
-	unsigned int seq = emit_fence();
+	unsigned int seq;
+
+	gl_enter();
+	seq = emit_fence();
 	ring_flush();
+	gl_leave();
 	wait_fence(seq);
 }
 
 void glFlush(void)
 {
+	gl_enter();
 	ring_flush();
+	gl_leave();
 }
 
 /* ------------------------------------------------------- answered locally */
 
 GLenum glGetError(void)
 {
-	GLenum e = st.error;
-	st.error = GL_NO_ERROR;
+	GLenum e;
+
+	gl_enter();
+	e = S->error;
+	S->error = GL_NO_ERROR;
+	gl_leave();
 	return e;
 }
 
@@ -1074,10 +1328,13 @@ void glGenTextures(GLsizei n, GLuint *textures)
 	 * Names are allocated here and used verbatim on the host. GL lets
 	 * glBindTexture take any name, so there is no mapping table and no
 	 * round trip - which matters because a round trip here would be 8 us.
+	 * The counter is the share group's, so both threads draw from it,
+	 * under the lock, and a name is never handed out twice.
 	 */
 	if (!textures || n <= 0) return;
-	if (!st.next_texture) st.next_texture = 1;
-	for (i = 0; i < n; i++) textures[i] = st.next_texture++;
+	gl_enter();
+	for (i = 0; i < n; i++) textures[i] = next_texture++;
+	gl_leave();
 }
 
 GLuint glGenLists(GLsizei range)
@@ -1085,57 +1342,65 @@ GLuint glGenLists(GLsizei range)
 	GLuint first;
 
 	if (range <= 0) return 0;
-	if (!st.next_list) st.next_list = 1;
-	first = st.next_list;
-	st.next_list += range;
+	gl_enter();
+	first = next_list;
+	next_list += range;
+	gl_leave();
 	return first;
 }
 
 void glGetIntegerv(GLenum pname, GLint *params)
 {
 	if (!params) return;
+	gl_enter();
 	switch (pname) {
-	case GL_TEXTURE_BINDING_2D:   params[0] = (GLint)st.tex[0]; break;
-	case GL_PACK_ROW_LENGTH:      params[0] = st.pack_row_length; break;
-	case GL_PACK_ALIGNMENT:       params[0] = st.pack_alignment; break;
-	case GL_PACK_SKIP_ROWS:       params[0] = st.pack_skip_rows; break;
-	case GL_PACK_SKIP_PIXELS:     params[0] = st.pack_skip_pixels; break;
-	case GL_PACK_INVERT_MESA:     params[0] = st.pack_invert; break;
-	case GL_UNPACK_ROW_LENGTH:    params[0] = st.unpack_row_length; break;
-	case GL_UNPACK_ALIGNMENT:     params[0] = st.unpack_alignment; break;
-	case GL_UNPACK_SKIP_ROWS:     params[0] = st.unpack_skip_rows; break;
-	case GL_UNPACK_SKIP_PIXELS:   params[0] = st.unpack_skip_pixels; break;
-	case GL_UNPACK_LSB_FIRST:     params[0] = st.unpack_lsb_first; break;
-	case GL_UNPACK_SWAP_BYTES:    params[0] = st.unpack_swap_bytes; break;
-	case GL_MATRIX_MODE:          params[0] = (GLint)st.matrix_mode; break;
+	/* The calling thread's own binding. renderd's glyph code skips its
+	 * glBindTexture when this says the page is already bound, so an
+	 * answer from the other context draws text with the wrong texture. */
+	case GL_TEXTURE_BINDING_2D:   params[0] = (GLint)S->tex[0]; break;
+	case GL_PACK_ROW_LENGTH:      params[0] = S->pack_row_length; break;
+	case GL_PACK_ALIGNMENT:       params[0] = S->pack_alignment; break;
+	case GL_PACK_SKIP_ROWS:       params[0] = S->pack_skip_rows; break;
+	case GL_PACK_SKIP_PIXELS:     params[0] = S->pack_skip_pixels; break;
+	case GL_PACK_INVERT_MESA:     params[0] = S->pack_invert; break;
+	case GL_UNPACK_ROW_LENGTH:    params[0] = S->unpack_row_length; break;
+	case GL_UNPACK_ALIGNMENT:     params[0] = S->unpack_alignment; break;
+	case GL_UNPACK_SKIP_ROWS:     params[0] = S->unpack_skip_rows; break;
+	case GL_UNPACK_SKIP_PIXELS:   params[0] = S->unpack_skip_pixels; break;
+	case GL_UNPACK_LSB_FIRST:     params[0] = S->unpack_lsb_first; break;
+	case GL_UNPACK_SWAP_BYTES:    params[0] = S->unpack_swap_bytes; break;
+	case GL_MATRIX_MODE:          params[0] = (GLint)S->matrix_mode; break;
 	/* What the Radeon 9200 the unit shipped with reported. The application
 	 * uses it to size textures, so answering larger than the original
 	 * would change what it draws. */
 	case GL_MAX_TEXTURE_SIZE:     params[0] = 2048; break;
 	case GL_VIEWPORT:
-		params[0] = st.viewport[0]; params[1] = st.viewport[1];
-		params[2] = st.viewport[2]; params[3] = st.viewport[3];
+		params[0] = S->viewport[0]; params[1] = S->viewport[1];
+		params[2] = S->viewport[2]; params[3] = S->viewport[3];
 		break;
 	default:
 		params[0] = 0;
 		say("glGetIntegerv(0x%x) unanswered\n", (unsigned)pname);
 		break;
 	}
+	gl_leave();
 }
 
 void glGetFloatv(GLenum pname, GLfloat *params)
 {
 	if (!params) return;
+	gl_enter();
 	switch (pname) {
 	case GL_CURRENT_COLOR:
-		params[0] = st.color[0]; params[1] = st.color[1];
-		params[2] = st.color[2]; params[3] = st.color[3];
+		params[0] = S->color[0]; params[1] = S->color[1];
+		params[2] = S->color[2]; params[3] = S->color[3];
 		break;
 	default:
 		params[0] = 0.0f;
 		say("glGetFloatv(0x%x) unanswered\n", (unsigned)pname);
 		break;
 	}
+	gl_leave();
 }
 
 const GLubyte *glGetString(GLenum name)
@@ -1183,84 +1448,126 @@ GLXContext glXCreateContext(Display *dpy, XVisualInfo *vis,
 	struct is1gl_ctx *c;
 
 	(void)vis; (void)shareList; (void)direct;
-	if (transport_open() < 0) return 0;
-
+	gl_enter();
+	if (transport_open() < 0) {
+		gl_leave();
+		return 0;
+	}
 	c = (struct is1gl_ctx *)calloc(1, sizeof *c);
-	if (!c) return 0;
+	if (!c) {
+		gl_leave();
+		return 0;
+	}
 	c->id = next_ctx_id++;
 	c->dpy = dpy;
+	state_init(&c->st);
 	/*
 	 * The application makes two contexts and expects them to share
-	 * textures and lists. The host keeps one share group for all of them;
-	 * state that is not shared by GL, such as the viewport, remains attached
-	 * to this guest context and is restored by glXMakeCurrent().
+	 * textures and lists. The host keeps one share group for all of them,
+	 * and a host context per guest context for everything else.
 	 */
 	say("context %d created\n", c->id);
+	gl_leave();
 	return (GLXContext)c;
 }
 
 void glXDestroyContext(Display *dpy, GLXContext ctx)
 {
+	struct is1gl_ctx *c = (struct is1gl_ctx *)ctx;
+	int i;
+
 	(void)dpy;
-	if (ctx) {
-		if ((GLXContext)current_ctx == ctx) {
-			current_ctx = NULL;
-			current_drawable = (GLXDrawable)0;
+	if (!c) return;
+	gl_enter();
+	for (i = 0; i < MAX_THREADS; i++) {
+		if (bindings[i].ctx == c) {
+			bindings[i].ctx = 0;
+			bindings[i].drawable = (GLXDrawable)0;
 		}
-		free(ctx);
 	}
+	if (emitted == c) emitted = 0;
+	if (cur == c) {
+		cur = 0;
+		S = &no_ctx;
+	}
+	free(c);
+	gl_leave();
 }
 
 Bool glXMakeCurrent(Display *dpy, GLXDrawable drawable, GLXContext ctx)
 {
 	struct is1gl_ctx *c = (struct is1gl_ctx *)ctx;
 	unsigned int w = 720, h = 480;
-	unsigned char *r;
+	void *me = thr_self();
 	Window root;
-	int xx, yy;
+	int xx, yy, i;
 	unsigned int bw, dep;
 
-	if (!c) return False;
-	if (transport_open() < 0) return False;
-
-	/* The FBO the host renders into is the drawable's size. */
-	if (dpy && drawable &&
+	/*
+	 * The drawable's size, for the host's FBO. Asked before taking the
+	 * lock: it is an X round trip, and the other thread may be waiting.
+	 */
+	if (c && dpy && drawable &&
 	    XGetGeometry(dpy, drawable, &root, &xx, &yy, &w, &h, &bw, &dep)) {
 		say("make current: context %d drawable %ux%u\n", c->id, w, h);
 	}
 
-	r = ring_record(IS1GL_OP_MAKE_CURRENT, 12);
-	if (!r) return False;
-	put_u32(r + 0, (unsigned int)c->id);
-	put_u32(r + 4, w);
-	put_u32(r + 8, h);
+	gl_enter();
+	i = binding_slot(me);
+	if (!c) {
+		/* Release: this thread has nothing current any more. */
+		if (i >= 0) {
+			bindings[i].ctx = 0;
+			bindings[i].drawable = (GLXDrawable)0;
+		}
+		cur = 0;
+		S = &no_ctx;
+		gl_leave();
+		return True;
+	}
+	if (transport_open() < 0) {
+		gl_leave();
+		return False;
+	}
+	if (i < 0 && (i = binding_slot(0)) < 0) {
+		say("more than %d threads made a context current\n", MAX_THREADS);
+		gl_leave();
+		return False;
+	}
 
 	/*
 	 * A newly-created GL context starts with a viewport covering its first
-	 * drawable.  Thereafter the viewport belongs to the context and survives
-	 * switches, even when another sharing context selects a different one.
-	 * Do not change the tracked context until the command was queued.
+	 * drawable. Thereafter the viewport belongs to the context.
 	 */
-	if (current_ctx && current_ctx != c) {
-		memcpy(current_ctx->viewport, st.viewport,
-		       sizeof current_ctx->viewport);
-		current_ctx->viewport_valid = 1;
+	if (!c->bound) {
+		c->st.viewport[0] = 0;
+		c->st.viewport[1] = 0;
+		c->st.viewport[2] = (GLint)w;
+		c->st.viewport[3] = (GLint)h;
 	}
-	if (!c->viewport_valid) {
-		c->viewport[0] = 0;
-		c->viewport[1] = 0;
-		c->viewport[2] = (GLint)w;
-		c->viewport[3] = (GLint)h;
-		c->viewport_valid = 1;
-	}
-	memcpy(st.viewport, c->viewport, sizeof st.viewport);
+	c->w = w;
+	c->h = h;
+	c->bound = 1;
+	bindings[i].thr = me;
+	bindings[i].ctx = c;
+	bindings[i].drawable = drawable;
+	cur = c;
+	S = &c->st;
 
-	current_ctx = c;
-	current_drawable = drawable;
-	/* QEMU multiplexes guest contexts onto one host compatibility context. */
-	emit_glViewport(st.viewport[0], st.viewport[1],
-	                st.viewport[2], st.viewport[3]);
+	if (emit_make_current(c) < 0) {
+		gl_leave();
+		return False;
+	}
+	/*
+	 * A host with one context for everybody keeps only the viewport per
+	 * guest context, and older ones not even that; restating it is what
+	 * those need. A host with a context per guest context ignores the
+	 * repetition.
+	 */
+	emit_glViewport(S->viewport[0], S->viewport[1],
+	                S->viewport[2], S->viewport[3]);
 	ring_flush();
+	gl_leave();
 	return True;
 }
 
@@ -1275,13 +1582,36 @@ void glXSwapBuffers(Display *dpy, GLXDrawable drawable)
 	 * precedes the swap, one of each per frame - and the X window stays
 	 * black by design.
 	 */
+	gl_enter();
 	r = ring_record(IS1GL_OP_SWAP, 0);
 	(void)r;
 	ring_flush();
+	gl_leave();
 }
 
-GLXContext glXGetCurrentContext(void) { return (GLXContext)current_ctx; }
-GLXDrawable glXGetCurrentDrawable(void) { return current_drawable; }
+GLXContext glXGetCurrentContext(void)
+{
+	struct is1gl_ctx *c;
+
+	gl_enter();
+	c = cur;
+	gl_leave();
+	return (GLXContext)c;
+}
+
+GLXDrawable glXGetCurrentDrawable(void)
+{
+	GLXDrawable d = (GLXDrawable)0;
+	int i;
+
+	gl_enter();
+	i = binding_slot(thr_self());
+	if (i >= 0 && bindings[i].ctx)
+		d = bindings[i].drawable;
+	gl_leave();
+	return d;
+}
+
 Bool glXIsDirect(Display *dpy, GLXContext ctx) { (void)dpy; (void)ctx; return True; }
 void glXWaitGL(void) { glFinish(); }
 void glXWaitX(void) { }
@@ -1322,9 +1652,14 @@ int glXGetConfig(Display *dpy, XVisualInfo *vis, int attrib, int *value)
 void *glXAllocateMemoryNV(GLsizei size, GLfloat readfreq, GLfloat writefreq,
                           GLfloat priority)
 {
+	void *p = 0;
+
 	(void)readfreq; (void)writefreq; (void)priority;
-	if (transport_open() < 0) return 0;
-	return agp_alloc((unsigned int)size, 0);
+	gl_enter();
+	if (transport_open() == 0)
+		p = agp_alloc((unsigned int)size, 0);
+	gl_leave();
+	return p;
 }
 
 void glXFreeMemoryNV(GLvoid *pointer)
@@ -1337,8 +1672,11 @@ void glXFreeMemoryNV(GLvoid *pointer)
 
 GLuint glXGetAGPOffsetMESA(const GLvoid *pointer)
 {
-	unsigned int phys = agp_phys(pointer);
+	unsigned int phys;
 
+	gl_enter();
+	phys = agp_phys(pointer);
+	gl_leave();
 	return phys ? (phys - aper_base) : ~0u;
 }
 
@@ -1363,6 +1701,11 @@ static void is1gl_report(void)
 	if (n_waits)
 		fprintf(f, "[is1gl] wait %.1f us mean, %lu%% answered in the spin\n",
 		        wait_us_total / n_waits, 100 * n_spin_hits / n_waits);
+	fprintf(f, "[is1gl] contexts %d  switches %lu  calls that waited for "
+	        "another thread %lu\n", next_ctx_id - 1, n_switches, n_contended);
+	if (stress_mask)
+		fprintf(f, "[is1gl] STRESS TEST MODE %d: context %d stalls %d ms\n",
+		        stress_mask, stress_ctx, stress_ms);
 	fprintf(f, "[is1gl] host: done_seq %u  errors %u\n",
 	        transport_up ? hdr(RH_DONE_SEQ) : 0,
 	        transport_up ? hdr(RH_ERRORS) : 0);
@@ -1409,12 +1752,14 @@ static void is1gl_fatal(int s)
 static void is1gl_ctor(void) __attribute__((constructor));
 static void is1gl_ctor(void)
 {
-	st.pack_alignment = 4;
-	st.unpack_alignment = 4;
-	st.matrix_mode = GL_MODELVIEW;
-	st.next_texture = 1;
-	st.next_list = 1;
+	const char *e;
+
+	state_init(&no_ctx);
+	S = &no_ctx;
 	verbose = getenv("IS1GL_LOG") != 0 || getenv("IS1GL_VERBOSE") != 0;
+	if ((e = getenv("IS1GL_STRESS")) != 0) stress_mask = atoi(e);
+	if ((e = getenv("IS1GL_STRESS_CTX")) != 0) stress_ctx = atoi(e);
+	if ((e = getenv("IS1GL_STRESS_MS")) != 0) stress_ms = atoi(e);
 	signal(SIGUSR2, is1gl_sig);
 	/*
 	 * The crash report is worth having, but it rewrites the core: the

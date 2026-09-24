@@ -287,10 +287,13 @@ def gen_guest(funcs):
                      "format, type);\n" % (off, spec["image"]))
         o.append("}\n\n")
 
-        # --- the public wrapper, unless it is hand-written in is1gl.c
+        # --- the public wrapper, unless it is hand-written in is1gl.c.
+        # gl_lock makes the call indivisible: renderd calls GL from two
+        # threads, and libc_r can switch between them at any instruction.
         if not spec.get("hand"):
             call = ", ".join(n for _, n in f["params"])
-            o.append("%s %s(%s)\n{\n    emit_%s(%s);\n}\n\n"
+            o.append("%s %s(%s)\n{\n    gl_enter();\n    emit_%s(%s);\n"
+                     "    gl_leave();\n}\n\n"
                      % (f["ret"], name, decl, name, call))
 
     o.append("\n/* ---- stubs: every entry point the application does not use.\n"

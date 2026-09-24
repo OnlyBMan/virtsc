@@ -14,7 +14,9 @@ static void emit_glClearColor(GLclampf red, GLclampf green, GLclampf blue, GLcla
 
 void glClearColor(GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha)
 {
+    gl_enter();
     emit_glClearColor(red, green, blue, alpha);
+    gl_leave();
 }
 
 static void emit_glClear(GLbitfield mask)
@@ -26,7 +28,9 @@ static void emit_glClear(GLbitfield mask)
 
 void glClear(GLbitfield mask)
 {
+    gl_enter();
     emit_glClear(mask);
+    gl_leave();
 }
 
 static void emit_glBlendFunc(GLenum sfactor, GLenum dfactor)
@@ -39,7 +43,9 @@ static void emit_glBlendFunc(GLenum sfactor, GLenum dfactor)
 
 void glBlendFunc(GLenum sfactor, GLenum dfactor)
 {
+    gl_enter();
     emit_glBlendFunc(sfactor, dfactor);
+    gl_leave();
 }
 
 static void emit_glLineWidth(GLfloat width)
@@ -51,7 +57,9 @@ static void emit_glLineWidth(GLfloat width)
 
 void glLineWidth(GLfloat width)
 {
+    gl_enter();
     emit_glLineWidth(width);
+    gl_leave();
 }
 
 static void emit_glScissor(GLint x, GLint y, GLsizei width, GLsizei height)
@@ -66,7 +74,9 @@ static void emit_glScissor(GLint x, GLint y, GLsizei width, GLsizei height)
 
 void glScissor(GLint x, GLint y, GLsizei width, GLsizei height)
 {
+    gl_enter();
     emit_glScissor(x, y, width, height);
+    gl_leave();
 }
 
 static void emit_glClipPlane(GLenum plane, const GLdouble * equation)
@@ -83,7 +93,9 @@ static void emit_glClipPlane(GLenum plane, const GLdouble * equation)
 
 void glClipPlane(GLenum plane, const GLdouble * equation)
 {
+    gl_enter();
     emit_glClipPlane(plane, equation);
+    gl_leave();
 }
 
 static void emit_glEnable(GLenum cap)
@@ -135,7 +147,9 @@ static void emit_glMatrixMode(GLenum mode)
 
 void glMatrixMode(GLenum mode)
 {
+    gl_enter();
     emit_glMatrixMode(mode);
+    gl_leave();
 }
 
 static void emit_glViewport(GLint x, GLint y, GLsizei width, GLsizei height)
@@ -156,7 +170,9 @@ static void emit_glPushMatrix(void)
 
 void glPushMatrix(void)
 {
+    gl_enter();
     emit_glPushMatrix();
+    gl_leave();
 }
 
 static void emit_glPopMatrix(void)
@@ -167,7 +183,9 @@ static void emit_glPopMatrix(void)
 
 void glPopMatrix(void)
 {
+    gl_enter();
     emit_glPopMatrix();
+    gl_leave();
 }
 
 static void emit_glLoadIdentity(void)
@@ -178,7 +196,9 @@ static void emit_glLoadIdentity(void)
 
 void glLoadIdentity(void)
 {
+    gl_enter();
     emit_glLoadIdentity();
+    gl_leave();
 }
 
 static void emit_glMultMatrixd(const GLdouble * m)
@@ -194,7 +214,9 @@ static void emit_glMultMatrixd(const GLdouble * m)
 
 void glMultMatrixd(const GLdouble * m)
 {
+    gl_enter();
     emit_glMultMatrixd(m);
+    gl_leave();
 }
 
 static void emit_glMultMatrixf(const GLfloat * m)
@@ -210,7 +232,9 @@ static void emit_glMultMatrixf(const GLfloat * m)
 
 void glMultMatrixf(const GLfloat * m)
 {
+    gl_enter();
     emit_glMultMatrixf(m);
+    gl_leave();
 }
 
 static void emit_glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z)
@@ -225,7 +249,9 @@ static void emit_glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z)
 
 void glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z)
 {
+    gl_enter();
     emit_glRotated(angle, x, y, z);
+    gl_leave();
 }
 
 static void emit_glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
@@ -240,7 +266,9 @@ static void emit_glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
 
 void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
 {
+    gl_enter();
     emit_glRotatef(angle, x, y, z);
+    gl_leave();
 }
 
 static void emit_glScalef(GLfloat x, GLfloat y, GLfloat z)
@@ -254,7 +282,9 @@ static void emit_glScalef(GLfloat x, GLfloat y, GLfloat z)
 
 void glScalef(GLfloat x, GLfloat y, GLfloat z)
 {
+    gl_enter();
     emit_glScalef(x, y, z);
+    gl_leave();
 }
 
 static void emit_glTranslated(GLdouble x, GLdouble y, GLdouble z)
@@ -268,7 +298,9 @@ static void emit_glTranslated(GLdouble x, GLdouble y, GLdouble z)
 
 void glTranslated(GLdouble x, GLdouble y, GLdouble z)
 {
+    gl_enter();
     emit_glTranslated(x, y, z);
+    gl_leave();
 }
 
 static void emit_glTranslatef(GLfloat x, GLfloat y, GLfloat z)
@@ -282,7 +314,9 @@ static void emit_glTranslatef(GLfloat x, GLfloat y, GLfloat z)
 
 void glTranslatef(GLfloat x, GLfloat y, GLfloat z)
 {
+    gl_enter();
     emit_glTranslatef(x, y, z);
+    gl_leave();
 }
 
 static void emit_glDeleteLists(GLuint list, GLsizei range)
@@ -295,7 +329,9 @@ static void emit_glDeleteLists(GLuint list, GLsizei range)
 
 void glDeleteLists(GLuint list, GLsizei range)
 {
+    gl_enter();
     emit_glDeleteLists(list, range);
+    gl_leave();
 }
 
 static void emit_glNewList(GLuint list, GLenum mode)
@@ -342,7 +378,9 @@ static void emit_glVertex2d(GLdouble x, GLdouble y)
 
 void glVertex2d(GLdouble x, GLdouble y)
 {
+    gl_enter();
     emit_glVertex2d(x, y);
+    gl_leave();
 }
 
 static void emit_glVertex2f(GLfloat x, GLfloat y)
@@ -355,7 +393,9 @@ static void emit_glVertex2f(GLfloat x, GLfloat y)
 
 void glVertex2f(GLfloat x, GLfloat y)
 {
+    gl_enter();
     emit_glVertex2f(x, y);
+    gl_leave();
 }
 
 static void emit_glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
@@ -378,7 +418,9 @@ static void emit_glTexCoord2f(GLfloat s, GLfloat t)
 
 void glTexCoord2f(GLfloat s, GLfloat t)
 {
+    gl_enter();
     emit_glTexCoord2f(s, t);
+    gl_leave();
 }
 
 static void emit_glPixelStoref(GLenum pname, GLfloat param)
@@ -420,7 +462,9 @@ static void emit_glTexEnvf(GLenum target, GLenum pname, GLfloat param)
 
 void glTexEnvf(GLenum target, GLenum pname, GLfloat param)
 {
+    gl_enter();
     emit_glTexEnvf(target, pname, param);
+    gl_leave();
 }
 
 static void emit_glTexEnvi(GLenum target, GLenum pname, GLint param)
@@ -434,7 +478,9 @@ static void emit_glTexEnvi(GLenum target, GLenum pname, GLint param)
 
 void glTexEnvi(GLenum target, GLenum pname, GLint param)
 {
+    gl_enter();
     emit_glTexEnvi(target, pname, param);
+    gl_leave();
 }
 
 static void emit_glTexParameterf(GLenum target, GLenum pname, GLfloat param)
@@ -448,7 +494,9 @@ static void emit_glTexParameterf(GLenum target, GLenum pname, GLfloat param)
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param)
 {
+    gl_enter();
     emit_glTexParameterf(target, pname, param);
+    gl_leave();
 }
 
 static void emit_glTexParameteri(GLenum target, GLenum pname, GLint param)
@@ -462,7 +510,9 @@ static void emit_glTexParameteri(GLenum target, GLenum pname, GLint param)
 
 void glTexParameteri(GLenum target, GLenum pname, GLint param)
 {
+    gl_enter();
     emit_glTexParameteri(target, pname, param);
+    gl_leave();
 }
 
 static void emit_glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid * pixels)
@@ -495,7 +545,9 @@ static void emit_glDeleteTextures(GLsizei n, const GLuint * textures)
 
 void glDeleteTextures(GLsizei n, const GLuint * textures)
 {
+    gl_enter();
     emit_glDeleteTextures(n, textures);
+    gl_leave();
 }
 
 static void emit_glBindTexture(GLenum target, GLuint texture)
@@ -538,7 +590,9 @@ static void emit_glCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, 
 
 void glCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height)
 {
+    gl_enter();
     emit_glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+    gl_leave();
 }
 
 

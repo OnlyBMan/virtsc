@@ -167,4 +167,9 @@ Keep these shortcuts handy:
 
 From now on, you only need your platform's startup script to bring the IS1 back up.
 
+# Updating
+When you update VirTSC, rebuild QEMU from the matching qemu-is1, then run your **copy script** again (Step 2) and repeat **Step 3** on the VM before rebooting. The guest library and the QEMU device are two halves of one protocol, so update both together.
+
+This matters for the fix to text turning into solid blocks and textures turning into noise after the VM has run a while. Most of that fix is in the guest library, so a VM that still has the old library keeps the problem even on a new QEMU.
+
 ### Run a flavor, and enjoy.
