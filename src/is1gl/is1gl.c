@@ -387,6 +387,13 @@ struct is1gl_ctx {
 	Display *dpy;
 	unsigned int w, h;      /* its drawable, repeated in each MAKE_CURRENT */
 	int bound;              /* made current at least once, so w, h are real */
+	/*
+	 * Keep a loader from running until libc_r's full timeslice expires while
+	 * the renderer is ready.  These are charged as records are appended and
+	 * cleared when the loader voluntarily yields outside gl_lock.
+	 */
+	unsigned int burst_records;
+	unsigned long burst_bytes;
 	struct glstate st;
 };
 
@@ -411,10 +418,31 @@ static struct is1gl_ctx *emitted;   /* whose records the host is replaying */
 static unsigned long n_switches, n_contended;
 
 /*
+ * renderd uses libc_r, so all five application threads are scheduled in one
+ * kernel thread.  Its display-list/texture loader can otherwise consume a
+ * complete libc_r timeslice while the renderer is ready, which turns a short
+ * product update into a visible run of missed frames.
+ *
+ * The context which calls glReadPixels is the renderer.  Make every other
+ * context yield after a bounded command burst.  The yield is deliberately
+ * performed only after gl_lock is released: the renderer must be able to
+ * enter GL when it wakes.
+ *
+ * Do not raise the renderer's libc_r priority here.  renderd has three other
+ * non-GL threads which must service CORBA requests, and a renderer which is
+ * almost always runnable can starve them until the process is declared dead.
+ */
+static struct is1gl_ctx *renderer_ctx;
+static unsigned int      loader_burst_records = 128;
+static unsigned long     loader_burst_bytes = 256 * 1024;
+static unsigned long     n_loader_yields;
+
+/*
  * Weak, so a process linked against plain libc rather than libc_r still
  * loads this library; it then has one thread, and every caller is it.
  */
 #pragma weak pthread_self
+#pragma weak pthread_yield
 
 static void *thr_self(void)
 {
@@ -496,8 +524,38 @@ static void gl_enter(void)
 
 static void gl_leave(void)
 {
-	if (--gl_depth == 0)
+	struct is1gl_ctx *leaving = 0;
+	int yield_loader = 0;
+
+	if (--gl_depth == 0) {
+		leaving = cur;
+		if (renderer_ctx && leaving && leaving != renderer_ctx &&
+		    ((loader_burst_records &&
+		      leaving->burst_records >= loader_burst_records) ||
+		     (loader_burst_bytes &&
+		      leaving->burst_bytes >= loader_burst_bytes))) {
+			leaving->burst_records = 0;
+			leaving->burst_bytes = 0;
+			yield_loader = 1;
+		}
 		gl_owner = 0;
+	}
+
+	/* Never yield with gl_owner held. */
+	if (yield_loader && pthread_yield) {
+		n_loader_yields++;
+		pthread_yield();
+	}
+}
+
+/* Called under gl_lock by the one GL operation unique to the renderer. */
+static void mark_renderer(void)
+{
+	if (!cur || renderer_ctx == cur) return;
+
+	renderer_ctx = cur;
+	say("context %d is renderer; loader burst is %u records or %lu bytes\n",
+	    cur->id, loader_burst_records, loader_burst_bytes);
 }
 
 static int target_index(GLenum t)
@@ -777,6 +835,10 @@ static unsigned char *ring_record(unsigned int opcode, long payload)
 	*(unsigned int *)(p + 0) = opcode;
 	*(unsigned int *)(p + 4) = len;
 	head += len;
+	if (cur) {
+		cur->burst_records++;
+		cur->burst_bytes += len;
+	}
 	n_records++;
 	hist[hist_pos++ % HIST_N] = (unsigned short)opcode;
 	return p + 8;
@@ -1253,6 +1315,7 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
 	unsigned char *r;
 
 	gl_enter();
+	mark_renderer();
 	phys = agp_phys(pixels);
 	if (!phys) {
 		/*
@@ -1486,6 +1549,9 @@ void glXDestroyContext(Display *dpy, GLXContext ctx)
 		}
 	}
 	if (emitted == c) emitted = 0;
+	if (renderer_ctx == c) {
+		renderer_ctx = 0;
+	}
 	if (cur == c) {
 		cur = 0;
 		S = &no_ctx;
@@ -1703,6 +1769,9 @@ static void is1gl_report(void)
 		        wait_us_total / n_waits, 100 * n_spin_hits / n_waits);
 	fprintf(f, "[is1gl] contexts %d  switches %lu  calls that waited for "
 	        "another thread %lu\n", next_ctx_id - 1, n_switches, n_contended);
+	fprintf(f, "[is1gl] loader yields %lu "
+	        "(burst %u records or %lu bytes)\n", n_loader_yields,
+	        loader_burst_records, loader_burst_bytes);
 	if (stress_mask)
 		fprintf(f, "[is1gl] STRESS TEST MODE %d: context %d stalls %d ms\n",
 		        stress_mask, stress_ctx, stress_ms);
@@ -1760,6 +1829,10 @@ static void is1gl_ctor(void)
 	if ((e = getenv("IS1GL_STRESS")) != 0) stress_mask = atoi(e);
 	if ((e = getenv("IS1GL_STRESS_CTX")) != 0) stress_ctx = atoi(e);
 	if ((e = getenv("IS1GL_STRESS_MS")) != 0) stress_ms = atoi(e);
+	if ((e = getenv("IS1GL_LOADER_BURST_RECORDS")) != 0)
+		loader_burst_records = (unsigned int)strtoul(e, 0, 0);
+	if ((e = getenv("IS1GL_LOADER_BURST_BYTES")) != 0)
+		loader_burst_bytes = strtoul(e, 0, 0);
 	signal(SIGUSR2, is1gl_sig);
 	/*
 	 * The crash report is worth having, but it rewrites the core: the
