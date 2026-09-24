@@ -89,8 +89,9 @@ Now run your **SSH script** and log in as **root**. If successful, we can now ma
 # Step 3: Building the guest libraries
 ### The following instructions should be performed on the VM (SSH or qemu VGA), not your host.
 
-We need to build some libraries on the IS1 itself. If the copy from earlier was successful, run the following:
+We need to build some libraries on the IS1 itself. If the copy from earlier was successful, run the following (ensure you are in a bash shell):
 ```sh
+bash # Open bash shell first before continuing
 cd /usr/local/src
 
 # Strip any Windows (CRLF) line endings from the copied sources.

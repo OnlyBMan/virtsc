@@ -4,7 +4,7 @@ This guide walks through building VirTSC on **Windows** inside **WSL 2** (Window
 
 If you are on Linux, use the [Debian guide](DEBIAN.md) instead. If you can't use WSL 2 (see below), use the [native Windows guide](WINDOWS.md).
 
-> **Why WSL?** The native Windows build runs the IS1 under TCG, QEMU's software CPU. On some Windows hosts, particularly ones running Hyper-V or Memory integrity, QEMU's timers fire irregularly under TCG, and the IS1's software can segfault. Inside WSL, the VM runs under KVM with the Linux kernel handling its timers, just like the Debian build.
+> **Why WSL?** The native Windows build runs the IS1 under TCG, QEMU's software CPU, which is much slower than hardware acceleration. Inside WSL, the VM runs under KVM, just like the Debian build.
 
 # Step 1: Prerequisites
 
