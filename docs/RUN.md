@@ -92,6 +92,8 @@ Great. Now we're going to create a shell script that you can easily launch your 
 
 If you change your mind about the disk format later, just edit those two settings.
 
+Every script includes **`-device is1-clock`**, which lets the IS1 read your host's time and CPU clock rate. The guest guide installs **is1clock**, a small program that uses it to keep the IS1's clock accurate. Without it, the IS1's clock can run slow, and **renderd** eventually stops with **`Panic: Time drifted too much`**. Keep **`-rtc base=utc,clock=host`** as it is: is1clock relies on it.
+
 <details>
 <summary><b>Debian</b></summary>
 
@@ -125,6 +127,7 @@ input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
 stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
 audiodev=audio0 \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
+  -device is1-clock \
   -display gtk,zoom-to-fit=on,gl=off
 EOF
 ```
@@ -173,6 +176,7 @@ $QemuArgs = @(
     '-audiodev', 'sdl,id=audio0',
     '-device', 'thunderstorm,id=tsc0,present=on,version=0x011a0012,input=bars,stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,program-display=on,program-audio=on,audiodev=audio0',
     '-device', 'is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520',
+    '-device', 'is1-clock',
     '-display', 'sdl,gl=off'
 )
 
@@ -221,6 +225,7 @@ input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
 stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
 audiodev=audio0 \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
+  -device is1-clock \
   -display cocoa,zoom-to-fit=on
 EOF
 chmod +x ~/i1/run.sh
@@ -273,6 +278,8 @@ exec scp -P 2222 \
     src/is1gl/is1gl_ring.h \
     src/is1gl/is1gl_ops.h \
     src/is1gl/is1gl_gen_guest.h \
+    src/is1clock/is1clock.c \
+    src/is1clock/000.is1clock.sh \
     resources/XF86Config-4.qemu-cirrus \
     root@127.0.0.1:/usr/local/src/
 EOF
@@ -307,6 +314,8 @@ $GuestFiles = @(
     "$Virtsc\src\is1gl\is1gl_ring.h",
     "$Virtsc\src\is1gl\is1gl_ops.h",
     "$Virtsc\src\is1gl\is1gl_gen_guest.h",
+    "$Virtsc\src\is1clock\is1clock.c",
+    "$Virtsc\src\is1clock\000.is1clock.sh",
     "$Virtsc\resources\XF86Config-4.qemu-cirrus"
 )
 

@@ -82,7 +82,7 @@ Once you get to the login prompt, you're ready to copy the necessary files to th
 # Step 2: Copying the guest files
 ### The following instructions should be performed on your host machine, NOT the VM.
 
-Run your **copy script** (see the table at the top). Authenticate with the **root** password of the VM. If successful, this copies the guest libraries, their headers, and the XF86 config to `/usr/local/src/` on the VM.
+Run your **copy script** (see the table at the top). Authenticate with the **root** password of the VM. If successful, this copies the guest libraries, their headers, the **is1clock** clock program, and the XF86 config to `/usr/local/src/` on the VM.
 
 Now run your **SSH script** and log in as **root**. If successful, we can now make our lives a little bit easier thanks to a great feature known as ***COPY AND PASTE***.
 
@@ -94,7 +94,7 @@ We need to build some libraries on the IS1 itself. If the copy from earlier was 
 cd /usr/local/src
 
 # Strip any Windows (CRLF) line endings from the copied sources.
-for f in *.c *.h; do
+for f in *.c *.h *.sh; do
     tr -d '\015' < "$f" > "$f.lf" && mv "$f.lf" "$f"
 done
 
@@ -117,8 +117,18 @@ fi
 
 cp /usr/local/lib/libis1gl.so /usr/X11R6/lib/libGL.so.1
 ldconfig -m /usr/X11R6/lib
+
+gcc -O2 -o /usr/local/sbin/is1clock is1clock.c
+install -m 755 000.is1clock.sh /usr/local/etc/rc.d/000.is1clock.sh
 ```
-The **`tr`** loop prevents the guest GCC error **`is1gl_ops.h:62: syntax error before string constant`**, which happens when CRLF line endings break a backslash-continued macro. `.gitattributes` and the header generator already keep these files LF, but keep this step anyway: it costs nothing and also covers older checkouts.
+The **`tr`** loop prevents the guest GCC error **`is1gl_ops.h:62: syntax error before string constant`**, which happens when CRLF line endings break a backslash-continued macro. `.gitattributes` and the header generator already keep these files LF, but keep this step anyway: it costs nothing and also covers older checkouts. It also matters for **`000.is1clock.sh`**, since the IS1's shell can't run a script with CRLF line endings.
+
+The last two lines install **is1clock**, which keeps the IS1's clock in step with your host:
+- **Why it's needed.** When FreeBSD boots, it measures how fast the CPU's cycle counter (the TSC) runs, and it keeps time by counting those cycles. In a VM the host can briefly pause the virtual CPU during that measurement. The pause makes the measurement come out too high, and the IS1's clock then runs slow, by up to a few percent, until the next reboot. renderd expects exactly 30 frames for every second on the IS1's clock, while the Thunderstorm card delivers frames in real time. Once the clock is slow enough, renderd counts too many frames, and when it's 4 seconds' worth ahead it stops itself with **`Panic: Time drifted too much`**.
+- **What it does at boot.** Before X and renderd start, it reads the CPU's true rate from the VM's **is1-clock** device and replaces the boot-time measurement with it, so the clock runs at the right speed. It also sets the clock to your host's time if it's a second or more off. Every boot starts up to about a second off, because the IS1's real-time clock only counts whole seconds.
+- **What it does after that.** It keeps running in the background and checks the clock every 30 seconds. If the clock is ever a second or more off again, for example after the VM was paused, it sets it to the host's time again and logs how far off it was.
+
+is1clock needs **`-device is1-clock`** in your startup script. Every startup script in the run guide already has it.
 
 ***Finally,*** replace the XF86Config with the one we copied:
 ```sh
@@ -133,6 +143,20 @@ reboot
 Once the VM returns and starts the X server, the **renderd** window should be solid black, with nothing displayed. Don't freak out! This is intentional.
 
 To check that VirTSC is working, press **`Ctrl+Alt+2`** in the QEMU window (on Debian and macOS, you can also open the **View** menu and choose **tsc0**). If everything was installed correctly, you should see the Thunderstorm program output at full frame rate, with its audio playing through your host's speakers. There is nothing else to build or launch.
+
+To check that **is1clock** is running, log in with your SSH script and run:
+```sh
+grep is1clock /var/log/messages | tail -3
+ps -ax | grep '[i]s1clock -d'
+```
+From this boot, you should see two lines like the ones below, and the daemon process, **`is1clock -d`**:
+```
+is1clock[124]: machdep.tsc_freq 2496107140 -> 2495999942 Hz (-0.004%)
+is1clock[124]: guest clock was 1.081 s behind the host; stepped
+```
+The percentage is how far off FreeBSD's boot-time measurement was. It changes from boot to boot. If the clock started less than a second off, the second line says **`guest clock is within 1.000 s of the host`** instead.
+
+If instead you see **`no is1-clock device at port 0x530`**, your startup script is missing **`-device is1-clock`**. To check the clock by hand, run **`/usr/local/sbin/is1clock -n`** as root. It only reports how far off the clock is, without changing anything.
 
 Keep these shortcuts handy:
 
