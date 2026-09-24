@@ -4,7 +4,7 @@ This guide provides a walkthrough on building VirTSC on Debian-based Linux distr
 # Step 1: Prerequisites
 We need to ensure we have all packages required in order to build VirTSC. Install the following:
 ```
-sudo apt-get install -y bison bzip2 ca-certificates ccache findutils flex gcc git libc6-dev libfdt-dev libffi-dev libglib2.0-dev libpixman-1-dev locales make meson ninja-build pkg-config libosmesa6 libosmesa6-dev cmake libgtk-3-dev libsdl2-dev
+sudo apt-get install -y bison bzip2 ca-certificates ccache findutils flex gcc git libc6-dev libfdt-dev libffi-dev libglib2.0-dev libpixman-1-dev locales make meson ninja-build pkg-config libosmesa6 libosmesa6-dev cmake libgtk-3-dev libsdl2-dev python3-venv libslirp-dev
 ```
 With these installed, clone the **qemu-is1** and **virtsc** repositories:
 ```bash
@@ -28,7 +28,7 @@ Configure the build, relative to the build folder:
 ```
 If it fails to configure, **ensure you installed all the packages as defined in step 1.** If the configuration succeeded without error, it's time to build. Run **make** in the **build** directory.
 ```bash
-make
+make -j$(nproc)
 ```
 **Optional (but recommended):** Add the build folder to your bashrc so that the binaries are available in your system PATH. Do this by adding `export PATH="/home/YOUR-USERNAME/FOLDER-WHERE-YOU-CLONED-QEMU-IS1/build:$PATH"` to the bottom of your `~/.bashrc` file. Be sure to replace **YOUR-USERNAME** and **FOLDER-WHERE-YOU-CLONED-QEMU-IS1** accordingly, otherwise this will do nothing. *Only do this if you do not have a conflicting version of qemu installed on your machine.*
 

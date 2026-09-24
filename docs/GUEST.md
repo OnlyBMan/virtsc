@@ -3,7 +3,7 @@ This guide prepares the IntelliSTAR 1 itself to run VirTSC. It is the same on ev
 
 The few steps that happen on the host use the scripts you made in the run guide:
 
-| | Debian and macOS | Windows |
+| | Debian/macOS/WSL | Windows |
 |---|---|---|
 | Copy the guest files | `~/i1/copy-guest.sh` | `C:\IS1\Copy-Guest.ps1` |
 | SSH into the VM | `~/i1/ssh.sh` | `C:\IS1\SSH-VirTSC.ps1` |

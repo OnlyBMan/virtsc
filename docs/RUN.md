@@ -1,5 +1,5 @@
 # Running VirTSC
-This guide sets up the scripts that start and connect to your IntelliSTAR 1 VM. You should have finished building VirTSC for your platform first ([Debian](build/DEBIAN.md), [Windows](build/WINDOWS.md) or [macOS](build/MACOS.md)).
+This guide sets up the scripts that start and connect to your IntelliSTAR 1 VM. You should have finished building VirTSC for your platform first ([Debian](build/DEBIAN.md), [Windows](build/WINDOWS.md), [macOS](build/MACOS.md) or [WSL](build/WSL.md)).
 
 This is rather involved, so I'll try to hold your hand as much as possible through this. 
 
@@ -9,7 +9,7 @@ Each step explains what to do, then gives the commands for each platform. **Expa
 First things first - have an unmodified, raw IntelliSTAR 1 disk image handy. You need a folder to hold the image, the scripts, and the VM's logs. In this guide we use `~/i1` on Linux and macOS, and `C:\IS1` on Windows, with the image at `weatherscan.img` inside it.
 
 <details>
-<summary><b>Debian and macOS</b></summary>
+<summary><b>Debian/macOS/WSL</b></summary>
 
 Create the folder, and place your image at `~/i1/weatherscan.img`:
 ```bash
@@ -45,7 +45,7 @@ DISM.exe /Online /Enable-Feature /FeatureName:HypervisorPlatform /All
 Converting may take a while. If it fails, there's a good chance the raw disk image has bad sectors on it; use the raw image instead. *If you know what you're doing,* you can also boot an existing **vmdk** image by setting the format to `vmdk` in Step 3.
 
 <details>
-<summary><b>Debian and macOS</b></summary>
+<summary><b>Debian/macOS/WSL</b></summary>
 
 **Raw:** make sure the image is writable:
 ```bash
@@ -95,7 +95,7 @@ If you change your mind about the disk format later, just edit those two setting
 Every script includes **`-device is1-clock`**, which lets the IS1 read your host's time and CPU clock rate. The guest guide installs **is1clock**, a small program that uses it to keep the IS1's clock accurate. Without it, the IS1's clock can run slow, and **renderd** eventually stops with **`Panic: Time drifted too much`**. Keep **`-rtc base=utc,clock=host`** as it is: is1clock relies on it.
 
 <details>
-<summary><b>Debian</b></summary>
+<summary><b>Debian/WSL</b></summary>
 
 Change `qemu-system-i386` to its complete path if you did not add the **qemu-is1/build** folder to your system's PATH.
 ```bash
@@ -239,7 +239,7 @@ The IS1's SSH server is old, so connecting to it needs a handful of legacy optio
 Before saving the copy script, change the **virtsc** path in it to the folder where you cloned **virtsc**.
 
 <details>
-<summary><b>Debian and macOS</b></summary>
+<summary><b>Debian/macOS/WSL</b></summary>
 
 The SSH script:
 ```bash
@@ -340,7 +340,7 @@ You won't be able to use these until the guest is set up for SSH, which is the n
 Time to start the IS1! Be ready though, because on the first boot we need to interrupt the boot sequence to make some modifications.
 
 <details>
-<summary><b>Debian</b></summary>
+<summary><b>Debian/WSL</b></summary>
 
 ```bash
 ~/i1/run.sh
