@@ -187,7 +187,7 @@ try {
     Pop-Location
 }
 ```
-The VM runs under **TCG** (software emulation), as on macOS. Through some testing, it *should* be able to run under **WHPX** (Windows Hypervisor Platform), however not all hardware seems to work as it may crash with a "Fatal trap" or similar error. If this happens on your end, stick with TCG.
+The VM runs under **TCG** (software emulation), as on macOS. Through some testing, it *should* be able to run with `-accel` set to **WHPX** (Windows Hypervisor Platform). However, not all hardware seems to work as FreeBSD instantly crash with a "Fatal trap" or similar error. If this happens on your end, leave `-accel` set to TCG.
 
 QMP listens on **`127.0.0.1:4444`**.
 </details>
