@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="100.07423mm"
+   height="16.309057mm"
+   viewBox="0 0 100.07423 16.309057"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1"
+     transform="translate(-31.01133,-46.280666)">
+    <g
+       id="g6">
+      <path
+		 fill="white"
+         style="font-size:19.759px;line-height:1.71;font-family:'Zero Hour';-inkscape-font-specification:'Zero Hour';letter-spacing:3.84204px;word-spacing:0px;stroke-width:0.999996;stroke-linecap:round;paint-order:markers stroke fill"
+         d="m 131.3081,59.104856 h -15.57009 v -4.999028 c 0,-3.75421 1.38313,-5.117581 5.11758,-5.117581 h 10.45251 v -2.331562 h -10.53155 c -4.70264,0 -7.3701,2.726742 -7.3701,7.350348 v 7.449144 h 17.90165 z"
+         transform="scale(0.99830516,1.0016977)"
+         id="path6" />
+      <path
+	     fill="white"
+         style="font-size:19.759px;line-height:1.71;font-family:'Zero Hour';-inkscape-font-specification:'Zero Hour';letter-spacing:3.84204px;word-spacing:0px;stroke-width:0.999996;stroke-linecap:round;paint-order:markers stroke fill"
+         d="m 96.193885,52.88077 c 0.454457,-2.37108 1.620238,-3.892523 4.584085,-3.892523 h 10.82794 v -2.331562 h -10.70938 c -4.445778,0 -6.915653,2.213008 -7.271315,8.575407 h 15.510815 c -0.59277,3.023127 -1.62024,3.872764 -4.95951,3.872764 H 93.704251 v 2.351321 h 10.551309 c 4.95951,0 7.0342,-2.114213 7.40962,-8.575407 z"
+         transform="scale(0.99830516,1.0016977)"
+         id="path5" />
+      <path
+	     fill="white"
+         style="font-size:19.759px;line-height:1.71;font-family:'Zero Hour';-inkscape-font-specification:'Zero Hour';letter-spacing:3.84204px;word-spacing:0px;stroke-width:0.999996;stroke-linecap:round;paint-order:markers stroke fill"
+         d="M 93.386773,46.656685 H 83.072574 c -5.018786,0 -7.093481,2.193249 -7.409625,8.496371 l 2.292044,0.138313 c 0.217349,-3.912283 0.632288,-4.900233 1.9759,-5.631316 0.79036,-0.434698 1.9759,-0.671806 3.576379,-0.671806 v 12.46793 h 2.351321 v -12.46793 h 7.52818 z"
+         transform="scale(0.99830516,1.0016977)"
+         id="path4" />
+      <path
+	     fill="white"
+         id="path3"
+         style="font-size:19.759px;line-height:1.71;font-family:'Zero Hour';-inkscape-font-specification:'Zero Hour';letter-spacing:3.84204px;word-spacing:0px;stroke-width:0.999996;stroke-linecap:round;paint-order:markers stroke fill"
+         d="m 63.336561,46.65644 c -4.722401,0 -7.370182,2.766291 -7.370182,7.350379 v 7.44943 h 2.331458 v -6.224195 h 6.224123 l 8.397701,6.678693 1.462337,-1.798387 -6.165112,-4.880306 H 73.86798 V 46.65644 Z m -0.296609,2.331816 h 8.51624 v 3.892379 H 58.436047 c 0.612529,-3.319512 2.944149,-3.892379 4.603905,-3.892379 z"
+         transform="scale(0.99830516,1.0016977)" />
+      <path
+	     fill="white"
+         style="font-size:19.759px;line-height:1.71;font-family:'Zero Hour';-inkscape-font-specification:'Zero Hour';letter-spacing:3.84204px;word-spacing:0px;stroke-width:0.999996;stroke-linecap:round;paint-order:markers stroke fill"
+         d="M 54.11336,46.656685 H 51.781798 V 61.456177 H 54.11336 Z"
+         transform="scale(0.99830516,1.0016977)"
+         id="path1" />
+      <path
+	     fill="white"
+         style="font-size:19.759px;line-height:1.71;font-family:'Zero Hour';-inkscape-font-specification:'Zero Hour';letter-spacing:3.84204px;word-spacing:0px;stroke-width:0.999996;stroke-linecap:round;paint-order:markers stroke fill"
+         d="m 47.898647,46.202228 -7.409626,11.894919 -7.409625,-11.894919 -2.015418,1.244817 9.425043,15.0366 9.385526,-15.0366 z"
+         transform="scale(0.99830516,1.0016977)"
+         id="text1" />
+    </g>
+  </g>
+</svg>
