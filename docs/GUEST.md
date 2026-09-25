@@ -89,38 +89,9 @@ Now run your **SSH script** and log in as **root**. If successful, we can now ma
 # Step 3: Building the guest libraries
 ### The following instructions should be performed on the VM (SSH or qemu VGA), not your host.
 
-We need to build some libraries on the IS1 itself. If the copy from earlier was successful, run the following (ensure you are in a bash shell):
-```sh
-bash # Open bash shell first before continuing
-cd /usr/local/src
-
-# Strip any Windows (CRLF) line endings from the copied sources.
-for f in *.c *.h *.sh; do
-    tr -d '\015' < "$f" > "$f.lf" && mv "$f.lf" "$f"
-done
-
-gcc -O2 -fPIC -shared \
-    -o /usr/local/lib/libagpnv.so libagpnv.c
-
-gcc -O2 -fPIC -shared -I/usr/X11R6/include \
-    -o /usr/local/lib/libglfix.so libglfix.c \
-    -L/usr/X11R6/lib -lGL
-
-gcc -O2 -fPIC -shared -I. -I/usr/X11R6/include \
-    -o /usr/local/lib/libis1gl.so is1gl.c \
-    -L/usr/X11R6/lib -lX11
-
-# Keep the original Mesa libGL, even if this is run a second time.
-if [ ! -e /usr/X11R6/lib/libGL.so.1.mesa ]; then
-    mv /usr/X11R6/lib/libGL.so.1 \
-       /usr/X11R6/lib/libGL.so.1.mesa
-fi
-
-cp /usr/local/lib/libis1gl.so /usr/X11R6/lib/libGL.so.1
-ldconfig -m /usr/X11R6/lib
-
-gcc -O2 -o /usr/local/sbin/is1clock is1clock.c
-install -m 755 000.is1clock.sh /usr/local/etc/rc.d/000.is1clock.sh
+We need to build some libraries on the IS1 itself. If the copy from earlier was successful, run the following:
+```
+bash -c 'cd /usr/local/src && for f in *.c *.h *.sh; do tr -d "\015" < "$f" > "$f.lf" && mv "$f.lf" "$f"; done && gcc -O2 -fPIC -shared -o /usr/local/lib/libagpnv.so libagpnv.c && gcc -O2 -fPIC -shared -I/usr/X11R6/include -o /usr/local/lib/libglfix.so libglfix.c -L/usr/X11R6/lib -lGL && gcc -O2 -fPIC -shared -I. -I/usr/X11R6/include -o /usr/local/lib/libis1gl.so is1gl.c -L/usr/X11R6/lib -lX11 && if [ ! -e /usr/X11R6/lib/libGL.so.1.mesa ]; then mv /usr/X11R6/lib/libGL.so.1 /usr/X11R6/lib/libGL.so.1.mesa; fi && cp /usr/local/lib/libis1gl.so /usr/X11R6/lib/libGL.so.1 && ldconfig -m /usr/X11R6/lib && gcc -O2 -o /usr/local/sbin/is1clock is1clock.c && install -m 755 000.is1clock.sh /usr/local/etc/rc.d/000.is1clock.sh'
 ```
 The **`tr`** loop prevents the guest GCC error **`is1gl_ops.h:62: syntax error before string constant`**, which happens when CRLF line endings break a backslash-continued macro. `.gitattributes` and the header generator already keep these files LF, but keep this step anyway: it costs nothing and also covers older checkouts. It also matters for **`000.is1clock.sh`**, since the IS1's shell can't run a script with CRLF line endings.
 
