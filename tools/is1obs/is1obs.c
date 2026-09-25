@@ -30,9 +30,15 @@ OBS_DECLARE_MODULE()
 struct tsc_source {
     obs_source_t *obs;
     pthread_t thread;
+    pthread_mutex_t frame_lock;
     atomic_bool stop;
     bool started;
     char *path;
+    uint8_t *front_frame;
+    uint8_t *back_frame;
+    gs_texture_t *texture;
+    bool frame_pending;
+    bool frame_visible;
     uint64_t next_ts;
     uint32_t last_sequence;
     bool have_clock;
@@ -51,7 +57,6 @@ static void tsc_output_frame(struct tsc_source *s, const uint8_t *packet,
     uint32_t sequence = le32(packet + 12);
     uint64_t now = os_gettime_ns();
     uint64_t ts;
-    struct obs_source_frame video = {0};
 
     /* Audio sample counts (1601/1602 per frame) are the exact NTSC cadence. */
     if (!s->have_clock || sequence != s->last_sequence + 1 ||
@@ -65,14 +70,13 @@ static void tsc_output_frame(struct tsc_source *s, const uint8_t *packet,
     s->next_ts += pairs ? (uint64_t)pairs * 1000000000ULL / TSC_RATE
                         : TSC_FRAME_NS;
 
-    video.data[0] = (uint8_t *)packet + TSC_HEADER_BYTES;
-    video.linesize[0] = TSC_WIDTH * 4;
-    video.width = TSC_WIDTH;
-    video.height = TSC_HEIGHT;
-    video.format = VIDEO_FORMAT_BGRA;
-    video.timestamp = ts;
-    video.full_range = true;
-    obs_source_output_video(s->obs, &video);
+    /* Keep the TSC's premultiplied fill untouched.  OBS's async BGRA path
+     * premultiplies it again, which makes translucent graphics too dark. */
+    pthread_mutex_lock(&s->frame_lock);
+    memcpy(s->back_frame, packet + TSC_HEADER_BYTES, TSC_VIDEO_BYTES);
+    s->frame_pending = true;
+    s->frame_visible = true;
+    pthread_mutex_unlock(&s->frame_lock);
 
     if (pairs) {
         int32_t scaled[TSC_MAX_PAIRS * 2];
@@ -193,7 +197,10 @@ static void *tsc_worker(void *arg)
             fd = -1;
             used = expected = 0;
             s->have_clock = false;
-            obs_source_output_video(s->obs, NULL);
+            pthread_mutex_lock(&s->frame_lock);
+            s->frame_visible = false;
+            s->frame_pending = false;
+            pthread_mutex_unlock(&s->frame_lock);
             poll(NULL, 0, 100);
             continue;
         }
@@ -235,6 +242,63 @@ static const char *tsc_get_name(void *unused)
     return "IntelliStar TSC (ITS2 FIFO)";
 }
 
+static uint32_t tsc_get_width(void *unused)
+{
+    (void)unused;
+    return TSC_WIDTH;
+}
+
+static uint32_t tsc_get_height(void *unused)
+{
+    (void)unused;
+    return TSC_HEIGHT;
+}
+
+static void tsc_render(void *data, gs_effect_t *unused)
+{
+    struct tsc_source *s = data;
+    bool visible;
+    bool upload = false;
+
+    (void)unused;
+    pthread_mutex_lock(&s->frame_lock);
+    visible = s->frame_visible;
+    if (visible && s->frame_pending) {
+        uint8_t *tmp = s->front_frame;
+
+        s->front_frame = s->back_frame;
+        s->back_frame = tmp;
+        s->frame_pending = false;
+        upload = true;
+    }
+    pthread_mutex_unlock(&s->frame_lock);
+
+    if (upload) {
+        if (!s->texture) {
+            s->texture = gs_texture_create(TSC_WIDTH, TSC_HEIGHT, GS_BGRA,
+                                           1, NULL, GS_DYNAMIC);
+        }
+        if (s->texture) {
+            gs_texture_set_image(s->texture, s->front_frame,
+                                 TSC_WIDTH * 4, false);
+        }
+    }
+    if (!visible || !s->texture) {
+        return;
+    }
+
+    /* The card's RGB is already premultiplied by its key.  Do not multiply
+     * by source alpha a second time when compositing over the capture card. */
+    gs_blend_state_push();
+    gs_blend_function_separate(GS_BLEND_ONE, GS_BLEND_INVSRCALPHA,
+                               GS_BLEND_ONE, GS_BLEND_INVSRCALPHA);
+    gs_effect_t *effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
+    while (gs_effect_loop(effect, "Draw")) {
+        obs_source_draw(s->texture, 0, 0, TSC_WIDTH, TSC_HEIGHT, false);
+    }
+    gs_blend_state_pop();
+}
+
 static void *tsc_create(obs_data_t *settings, obs_source_t *source)
 {
     struct tsc_source *s = calloc(1, sizeof(*s));
@@ -244,7 +308,13 @@ static void *tsc_create(obs_data_t *settings, obs_source_t *source)
     }
     s->obs = source;
     s->path = strdup(obs_data_get_string(settings, "fifo_path"));
-    if (!s->path) {
+    s->front_frame = malloc(TSC_VIDEO_BYTES);
+    s->back_frame = malloc(TSC_VIDEO_BYTES);
+    if (!s->path || !s->front_frame || !s->back_frame ||
+        pthread_mutex_init(&s->frame_lock, NULL) != 0) {
+        free(s->front_frame);
+        free(s->back_frame);
+        free(s->path);
         free(s);
         return NULL;
     }
@@ -261,6 +331,14 @@ static void tsc_destroy(void *data)
         return;
     }
     tsc_stop(s);
+    obs_enter_graphics();
+    if (s->texture) {
+        gs_texture_destroy(s->texture);
+    }
+    obs_leave_graphics();
+    pthread_mutex_destroy(&s->frame_lock);
+    free(s->front_frame);
+    free(s->back_frame);
     free(s->path);
     free(s);
 }
@@ -282,7 +360,10 @@ static void tsc_update(void *data, obs_data_t *settings)
     free(s->path);
     s->path = copy;
     s->have_clock = false;
-    obs_source_output_video(s->obs, NULL);
+    pthread_mutex_lock(&s->frame_lock);
+    s->frame_visible = false;
+    s->frame_pending = false;
+    pthread_mutex_unlock(&s->frame_lock);
     tsc_start(s);
 }
 
@@ -303,11 +384,14 @@ static obs_properties_t *tsc_properties(void *unused)
 static struct obs_source_info tsc_info = {
     .id = "is1obs_tsc",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO |
-                    OBS_SOURCE_DO_NOT_DUPLICATE,
+    .output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_AUDIO |
+                    OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_DO_NOT_DUPLICATE,
     .get_name = tsc_get_name,
     .create = tsc_create,
     .destroy = tsc_destroy,
+    .get_width = tsc_get_width,
+    .get_height = tsc_get_height,
+    .video_render = tsc_render,
     .update = tsc_update,
     .get_defaults = tsc_defaults,
     .get_properties = tsc_properties,
