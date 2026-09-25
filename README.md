@@ -15,3 +15,4 @@ To set up VirTSC, select the appropriate platform you wish to use:
 - **[WSL](docs/build/WSL.md)**
 # Notes
 - Despite our best efforts, this has been proven unsuccessful for the Raspberry Pi platform up to model 4B (5 has not been tested yet, good luck).
+- VirTSC is pronounced "vert-see"
