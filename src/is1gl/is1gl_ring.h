@@ -31,6 +31,8 @@
 #define IS1GL_REG_APER_LO   0x24
 #define IS1GL_REG_APER_HI   0x28
 #define IS1GL_REG_APER_SZ   0x2c
+#define IS1GL_REG_CAPS      0x30   /* optional operations; 0 on older hosts */
+#define IS1GL_CAP_QT_PNG    0x01
 
 /*
  * The ring: a 4 KiB header followed by `size` bytes of records.

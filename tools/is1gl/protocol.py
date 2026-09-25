@@ -177,6 +177,8 @@ GLX_OPS = {
 
 # Opcodes the core needs that are not a single GL call.
 CONTROL_OPS = ["NOP", "WRAP", "FENCE", "MAKE_CURRENT", "SWAP", "READPIXELS"]
+# Appended after the generated GL calls to keep every existing opcode stable.
+AUX_OPS = ["QT_PNG_DECODE"]
 
 
 def marshalled(name):
@@ -224,6 +226,10 @@ def gen_ops_h(funcs):
             o.append("#define IS1GL_OP_%-24s %d\n" % (f["name"], n))
             names.append(f["name"])
             n += 1
+    for c in AUX_OPS:
+        o.append("#define IS1GL_OP_%-24s %d\n" % (c, n))
+        names.append(c)
+        n += 1
     o.append("\n#define IS1GL_OP_COUNT %d\n\n" % n)
     # The FreeBSD guest's old preprocessor cannot splice a continued macro
     # after a Windows checkout changes this generated header to CRLF.

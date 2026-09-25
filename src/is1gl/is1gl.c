@@ -47,6 +47,7 @@
 #include <time.h>
 #include <signal.h>
 #include <pthread.h>
+#include <dlfcn.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -183,7 +184,7 @@ static int agp_open(void)
 
 /*
  * Reserve `size` bytes at the top of the aperture, aligned to the frame
- * stride, and return the offset. Called once, for the ring.
+ * stride, and return the offset. Used for the ring and QuickTime scratch.
  */
 static int agp_reserve_top(unsigned int size)
 {
@@ -246,9 +247,9 @@ static void *agp_alloc(unsigned int size, unsigned int *offset_out)
 }
 
 /*
- * The same allocation, bound at a caller-chosen aperture offset. Only the
- * ring uses it, and only at the top of the aperture, so it never collides
- * with the bump allocator working upward.
+ * The same allocation, bound at a caller-chosen aperture offset. The ring
+ * and QuickTime scratch use it at the top of the aperture, so they never
+ * collide with the bump allocator working upward.
  */
 static void *agp_alloc_at(unsigned int size, unsigned int offset)
 {
@@ -436,6 +437,7 @@ static struct is1gl_ctx *renderer_ctx;
 static unsigned int      loader_burst_records = 128;
 static unsigned long     loader_burst_bytes = 256 * 1024;
 static unsigned long     n_loader_yields;
+static unsigned long     n_qt_host_decodes, n_qt_fallbacks;
 
 /*
  * Weak, so a process linked against plain libc rather than libc_r still
@@ -1752,6 +1754,180 @@ void (*glXGetProcAddressARB(const GLubyte *name))(void)
 	return 0;
 }
 
+/* --------------------------------------------------------- QuickTime PNG
+ *
+ * The forecast movies contain 128x256 RGBA PNG frames. Decoding three of
+ * them in renderd's single emulated CPU takes time away from its frame loop.
+ * Interpose only that known format, send the compressed frame through the
+ * existing IS1GL ring, and let QEMU decode into a small AGP scratch block.
+ * The caller still receives ordinary RGBA rows. No movie file is changed.
+ *
+ * All other codecs, sizes, colour models and older hosts use libquicktime's
+ * original decoder. RTLD_NEXT resolves its functions only when renderd calls
+ * us; other processes that load libGL need not load libquicktime at all.
+ */
+#define QT_MODEL_RGBA8888 10
+#define QT_W 128
+#define QT_H 256
+#define QT_RGBA_BYTES (QT_W * QT_H * 4)
+#define QT_SCRATCH_BYTES (4 + QT_RGBA_BYTES)
+#define QT_MAX_PACKET (2 * 1024 * 1024)
+#define QT_MODELS 32
+
+static struct {
+	void *file;
+	int model;
+} qt_models[QT_MODELS];
+static void *volatile qt_busy;
+static unsigned char *qt_scratch;
+
+void quicktime_set_cmodel(void *file, int model)
+{
+	static void (*real)(void *, int);
+	int i, free_slot = -1;
+
+	if (!real) real = (void (*)(void *, int))dlsym(RTLD_NEXT,
+	                                             "quicktime_set_cmodel");
+	if (real) real(file, model);
+	gl_enter();
+	for (i = 0; i < QT_MODELS; i++) {
+		if (qt_models[i].file == file) break;
+		if (!qt_models[i].file && free_slot < 0) free_slot = i;
+	}
+	if (i == QT_MODELS) i = free_slot;
+	if (i >= 0) {
+		qt_models[i].file = file;
+		qt_models[i].model = model;
+	}
+	gl_leave();
+}
+
+int quicktime_close(void *file)
+{
+	static int (*real)(void *);
+	int i;
+
+	if (!real) real = (int (*)(void *))dlsym(RTLD_NEXT, "quicktime_close");
+	gl_enter();
+	for (i = 0; i < QT_MODELS; i++) {
+		if (qt_models[i].file == file) {
+			qt_models[i].file = 0;
+			break;
+		}
+	}
+	gl_leave();
+	return real ? real(file) : -1;
+}
+
+int lqt_decode_video(void *file, unsigned char **rows, int track)
+{
+	static int (*real)(void *, unsigned char **, int);
+	static char *(*compressor)(void *, int);
+	static int (*width)(void *, int), (*height)(void *, int);
+	static long (*position)(void *, int), (*frame_size)(void *, long, int);
+	static long (*read_frame)(void *, unsigned char *, int);
+	static int (*set_position)(void *, long long, int);
+	unsigned char *packet = 0, *r;
+	long pos, size, got;
+	unsigned int seq, phys, status;
+	int i, model = -1, row;
+
+	if (!real) real = (int (*)(void *, unsigned char **, int))
+		dlsym(RTLD_NEXT, "lqt_decode_video");
+	if (!real) return -1;
+	if (!compressor) compressor = (char *(*)(void *, int))
+		dlsym(RTLD_NEXT, "quicktime_video_compressor");
+	if (!width) width = (int (*)(void *, int))
+		dlsym(RTLD_NEXT, "quicktime_video_width");
+	if (!height) height = (int (*)(void *, int))
+		dlsym(RTLD_NEXT, "quicktime_video_height");
+	if (!position) position = (long (*)(void *, int))
+		dlsym(RTLD_NEXT, "quicktime_video_position");
+	if (!frame_size) frame_size = (long (*)(void *, long, int))
+		dlsym(RTLD_NEXT, "quicktime_frame_size");
+	if (!read_frame) read_frame = (long (*)(void *, unsigned char *, int))
+		dlsym(RTLD_NEXT, "quicktime_read_frame");
+	if (!set_position) set_position = (int (*)(void *, long long, int))
+		dlsym(RTLD_NEXT, "quicktime_set_video_position");
+	if (getenv("IS1GL_QT_PNG_OFF") ||
+	    !compressor || !width || !height || !position || !frame_size ||
+	    !read_frame || !set_position || !rows || !transport_up ||
+	    !(dev[IS1GL_REG_CAPS / 4] & IS1GL_CAP_QT_PNG))
+		goto original;
+	gl_enter();
+	for (i = 0; i < QT_MODELS; i++)
+		if (qt_models[i].file == file) { model = qt_models[i].model; break; }
+	gl_leave();
+	if (model != QT_MODEL_RGBA8888 || width(file, track) != QT_W ||
+	    height(file, track) != QT_H ||
+	    !compressor(file, track) ||
+	    memcmp(compressor(file, track), "png ", 4) != 0)
+		goto original;
+
+	pos = position(file, track);
+	size = frame_size(file, pos, track);
+	if (size <= 0 || size > QT_MAX_PACKET) goto original;
+	packet = malloc((size_t)size);
+	if (!packet) goto original;
+	got = read_frame(file, packet, track); /* advances QuickTime's cursor */
+	if (got != size) goto restore;
+
+	/* A single scratch block is shared by all movie instances. Keep it busy
+	 * through the fence and row copies, but never hold gl_lock across them. */
+	while (cas_ptr(&qt_busy, 0, (void *)1) != 0) {
+		struct timespec ts;
+		ts.tv_sec = 0;
+		ts.tv_nsec = 100000;
+		nanosleep(&ts, 0);
+	}
+	gl_enter();
+	if (!qt_scratch) {
+		int offset = agp_reserve_top(QT_SCRATCH_BYTES);
+		if (offset >= 0)
+			qt_scratch = agp_alloc_at(QT_SCRATCH_BYTES,
+			                          (unsigned int)offset);
+	}
+	phys = qt_scratch ? agp_phys(qt_scratch) : 0;
+	if (!phys) {
+		gl_leave();
+		qt_busy = 0;
+		goto restore;
+	}
+	memset(qt_scratch, 0, 4);
+	r = ring_record(IS1GL_OP_QT_PNG_DECODE, 16 + size);
+	if (!r) {
+		gl_leave();
+		qt_busy = 0;
+		goto restore;
+	}
+	put_u32(r + 0, QT_W);
+	put_u32(r + 4, QT_H);
+	put_u32(r + 8, phys);
+	put_u32(r + 12, (unsigned int)size);
+	memcpy(r + 16, packet, (size_t)size);
+	seq = emit_fence();
+	ring_flush();
+	gl_leave();
+	wait_fence(seq);
+	status = *(volatile unsigned int *)qt_scratch;
+	if (status == 1) {
+		for (row = 0; row < QT_H; row++)
+			memcpy(rows[row], qt_scratch + 4 + row * QT_W * 4,
+			       QT_W * 4);
+		n_qt_host_decodes++;
+		qt_busy = 0;
+		free(packet);
+		return 0;
+	}
+	qt_busy = 0;
+restore:
+	set_position(file, pos, track);
+	free(packet);
+original:
+	n_qt_fallbacks++;
+	return real(file, rows, track);
+}
+
 /* --------------------------------------------------------------- report */
 
 static const char *const is1gl_op_names[] = IS1GL_OP_NAMES;
@@ -1772,6 +1948,8 @@ static void is1gl_report(void)
 	fprintf(f, "[is1gl] loader yields %lu "
 	        "(burst %u records or %lu bytes)\n", n_loader_yields,
 	        loader_burst_records, loader_burst_bytes);
+	fprintf(f, "[is1gl] QuickTime host PNG decodes %lu  fallbacks %lu\n",
+	        n_qt_host_decodes, n_qt_fallbacks);
 	if (stress_mask)
 		fprintf(f, "[is1gl] STRESS TEST MODE %d: context %d stalls %d ms\n",
 		        stress_mask, stress_ctx, stress_ms);
