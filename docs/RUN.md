@@ -112,7 +112,7 @@ exec qemu-system-i386 \
   -global i440FX.agp=on -global i440FX.agp-aperture-size=128M \
   -global piix3-ide.force-bus-master=on \
   -accel kvm -cpu pentium3 -m 512 -smp 1 \
-  -drive file=$IMG,format=raw,if=ide,cache=writeback -boot c \
+  -drive file=$IMG,format=$FORMAT,if=ide,cache=writeback -boot c \
   -vga cirrus \
   -netdev user,id=net0,net=10.100.102.0/24,host=10.100.102.1 \
   -device i82557b,netdev=net0 \
