@@ -33,7 +33,7 @@ Reset the **root** password. Replace **`password`** below with the password you 
 ```sh
 echo password | pw usermod root -h 0
 ```
-We need to modify **/etc/rc.conf** to contain the IP address for **em0**. I will walk you through this using **ee** instead of **vi**, since **vi** sucks.
+We need to modify **/etc/rc.conf** to contain the IP address for **em0**. I will walk you through this using **ee** instead of **vi**, since **vi** sucks to use on this version of FreeBSD.
 ```sh
 ee /etc/rc.conf
 ```
@@ -136,6 +136,8 @@ Keep these shortcuts handy:
 - **`Ctrl+Alt+2`**: switch to the Thunderstorm `tsc0` program output.
 - **`Ctrl+Alt+G`**: release or capture the keyboard and mouse.
 - **`Ctrl+Alt+F`**: toggle full screen.
+
+Another thing you can do is enable the tabs in the View menu in case you prefer a GUI.
 
 From now on, you only need your platform's startup script to bring the IS1 back up.
 
