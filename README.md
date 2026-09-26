@@ -16,5 +16,6 @@ To set up VirTSC, select the appropriate platform you wish to use:
 # Notes
 - Despite our best efforts, this has been proven unsuccessful for the Raspberry Pi platform up to model 4B (5 has not been tested yet, good luck).
 - VirTSC is pronounced "vert-see"
-- AI was used to generate the QEMU fork, drivers, and helper tools, because writing C is hard. 
+- AI was utilized to assist with forking QEMU and writing the necessary drivers and helper tools. Having said that, all the proper reverse engineering efforts done for this project was done by hand throughout the span of multiple years. 
 - If you have contributions to add, please open a PR!
+- Pour one out for ReRenderD.
