@@ -15,7 +15,7 @@ To set up VirTSC, select the appropriate platform you wish to use:
 - **[WSL](docs/build/WSL.md)**
 # Notes
 - Despite our best efforts, this has been proven unsuccessful for the Raspberry Pi platform up to model 4B (5 has not been tested yet, good luck).
-- VirTSC is pronounced "vert-see"
+- VirTSC is pronounced "vert-uh-see"
 - AI was utilized to assist with forking QEMU and writing the necessary drivers and helper tools. Having said that, all the proper reverse engineering efforts done for this project was done by hand throughout the span of multiple years. 
 - If you have contributions to add, please open a PR!
 - Pour one out for ReRenderD.
