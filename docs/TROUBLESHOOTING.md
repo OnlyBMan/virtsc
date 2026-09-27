@@ -1,6 +1,11 @@
 # Common Problems & Troubleshooting 
 Followed the guide ***exactly to a tee*** and not seeing a picture-perfect output on tsc0? Check out some of these common issues and their resolutions below:
 
+## See a black window, but no tsc0 output on an image previously used in VMware.
+If you plan on using an image that was previously used on a different VM platform/rendering engine (i.e VMware + ReRenderD), you most likely need to re-enable the TSC card in the renderD config or enable renderD execution in istard.
+
+Due to the different variations of these modifications, it's best to revert to a known good image.
+
 ## Solid black output on tsc0, no color bars, no graphical content
 If you completed the [Guest Setup](GUEST.md) as instructed (meaning you got all the files transferred to the VM and ran that long bash command to compile the GL modules) yet still have nothing but a solid black output on the **tsc0** view in the QEMU window, then there's a good chance that the Thunderstorm output was previously disabled for compatibility with another VM host like VMware (this is the common case especially if the image was a pre-built VMDK). Try the steps below:
 

@@ -25,7 +25,7 @@ Clone the **qemu-is1** and **virtsc** repositories:
 git clone https://github.com/VirTSC/qemu-is1
 git clone https://github.com/VirTSC/virtsc
 ```
-Great. You should have everything you need at this point, aside from a valid IntelliSTAR 1 image. For ease of setup without deviations, an unmodified, raw image is recommended.
+Great. You should have everything you need at this point, aside from a valid IntelliSTAR 1 image. For ease of setup without deviations, an unmodified, raw image is recommended. If you plan on using an image that was previously used on a different VM platform/rendering engine (i.e VMware + ReRenderD), you most likely need to re-enable the TSC card in the renderD config or enable renderD execution in istard.
 
 > **Heads up:** if you already have Homebrew's `qemu` installed (`brew list qemu`), its `qemu-system-i386` is **not** qemu-is1 and doesn't have the `thunderstorm` or `is1gl` devices. Keep an eye on which binary you're running.
 
@@ -37,8 +37,11 @@ We'll build Mesa 25.0.x (the last series that includes OSMesa) with the **llvmpi
 Create a Python virtualenv with Mesa's build-time Python modules:
 ```bash
 python3 -m venv ~/opt/mesa-venv
-~/opt/mesa-venv/bin/pip install mako pyyaml packaging
+~/opt/mesa-venv/bin/pip install mako pyyaml packaging tomli
 ```
+
+> **Heads up:** After installing python using brew, you may have 2 python versions, the system default is most likely the xcode one, which is too out of data for what we are trying to accomplish here. You may need to recreate the venv using the newer version.
+
 Download and extract Mesa. Any 25.0.x release should work; 25.0.7 is used here:
 ```bash
 mkdir -p ~/src && cd ~/src

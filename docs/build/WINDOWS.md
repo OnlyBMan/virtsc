@@ -105,7 +105,7 @@ Both source-folder checks should succeed before you continue. Running MINGW64 as
 
 The recorded test environment used **Windows x64**, **MSYS2 MINGW64**, **GCC 16.2.0**, **Meson 1.12.0**, **Ninja 1.13.2**, **LLVM 22.1.8**, **Mesa 24.3.4**, and **QEMU 11.1.1** with the `is1gl` and `thunderstorm` devices.
 
-Great. You should now have the prerequisites in place, aside from a valid **IntelliSTAR 1 disk image**. An unmodified image is recommended and is **not included** with VirTSC or this guide.
+Great. You should now have the prerequisites in place, aside from a valid **IntelliSTAR 1 disk image**. An unmodified image is recommended and is **not included** with VirTSC or this guide. If you plan on using an image that was previously used on a different VM platform/rendering engine (i.e VMware + ReRenderD), you most likely need to re-enable the TSC card in the renderD config or enable renderD execution in istard.
 
 # Step 2: Configuring & Building
 
