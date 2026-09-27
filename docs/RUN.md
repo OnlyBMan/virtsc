@@ -253,6 +253,7 @@ exec ssh -p 2222 \
     -o MACs=+hmac-sha1 \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
+    -o RSAMinSize=1024 \
     root@127.0.0.1
 EOF
 chmod +x ~/i1/ssh.sh
@@ -272,6 +273,7 @@ exec scp -P 2222 \
     -o MACs=+hmac-sha1 \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
+    -o RSAMinSize=1024 \
     src/agp/libagpnv.c \
     src/glfix/libglfix.c \
     src/is1gl/is1gl.c \

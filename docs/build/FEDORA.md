@@ -1,10 +1,25 @@
-# Building VirTSC on Debian-based Linux
-This guide provides a walkthrough on building VirTSC on Debian-based Linux distributions (i.e. Ubuntu, Mint, RaspiOS). If you are not using a Debian-based Linux, do not follow this guide.
+# Building VirTSC on Fedora (and downstream distros like RHEL, Alma and Rocky)
+This guide provides a walkthrough on building VirTSC on Fedora (and downstream distros like RHEL, Alma and Rocky). If you are not using these distros, do not follow this guide.
+
+An important note is that these instructions were written and tested on Rocky Linux 10, and some dependancies may have changed with the upstream dist ributions.
 
 # Step 1: Prerequisites
-We need to ensure we have all packages required in order to build VirTSC. Install the following:
+If you are running RHEL/Rocky/Alma, we have some repositories to enable:
+Fedora users can ignore this section.
 ```
-sudo apt-get install -y bison bzip2 ca-certificates ccache findutils flex gcc git libc6-dev libfdt-dev libffi-dev libglib2.0-dev libpixman-1-dev locales make meson ninja-build pkg-config libosmesa6 libosmesa6-dev cmake libgtk-3-dev libsdl2-dev python3-venv libslirp-dev
+Rocky/Alma:
+sudo dnf config-manager --set-enabled crb
+sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-$(rpm -E '%{rhel}').noarch.rpm
+
+RHEL:
+sudo subscription-manager repos --enable codeready-builder-for-rhel-$(rpm -E '%{rhel}')-$(arch)-rpms
+sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-$(rpm -E '%{rhel}').noarch.rpm
+```
+
+Now, we need to ensure we have all packages required in order to build VirTSC. Install the following:
+```
+sudo dnf install -y bison bzip2 ca-certificates ccache findutils flex gcc git glibc-devel libfdt-devel libffi-devel glib2-devel pixman-devel glibc-locale-source make meson ninja-build pkgconf-pkg-config mesa-compat-libOSMesa-devel cmake gtk3-devel SDL2-devel libslirp-devel
+
 ```
 With these installed, clone the **qemu-is1** and **virtsc** repositories:
 ```bash
