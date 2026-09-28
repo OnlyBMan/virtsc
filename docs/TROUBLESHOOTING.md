@@ -1,12 +1,7 @@
 # Common Problems & Troubleshooting 
 Followed the guide ***exactly to a tee*** and not seeing a picture-perfect output on tsc0? Check out some of these common issues and their resolutions below:
 
-## See a black window, but no tsc0 output on an image previously used in VMware.
-If you plan on using an image that was previously used on a different VM platform/rendering engine (i.e VMware + ReRenderD), you most likely need to re-enable the TSC card in the renderD config or enable renderD execution in istard.
-
-Due to the different variations of these modifications, it's best to revert to a known good image.
-
-## Solid black output on tsc0, no color bars, no graphical content
+## Solid black output on tsc0, no color bars, no graphical content, or no window shown on X.
 If you completed the [Guest Setup](GUEST.md) as instructed (meaning you got all the files transferred to the VM and ran that long bash command to compile the GL modules) yet still have nothing but a solid black output on the **tsc0** view in the QEMU window, then there's a good chance that the Thunderstorm output was previously disabled for compatibility with another VM host like VMware (this is the common case especially if the image was a pre-built VMDK). Try the steps below:
 
 Check out the **renderd** config file located at **/twc/conf/renderd.py**. Make sure that the **config.activateTStormCard** line is set to a 1, not a 0, as seen below:
@@ -17,6 +12,8 @@ config.activateTStormCard(1)
 config.activateAsiOutput(1)
 ```
 If it's set to 0, then change it to 1. Save the file and **exit the X server** or **reboot the VM**. When it returns, check the **tsc0** output view again in the QEMU window. You should see color bars by default until graphical processes are running.
+
+Another thing you should check is **/twc/conf/istard.py** to make sure renderD is launched, as some replacement graphics engines require renderD to be disabled.
 
 ## "Flashing Thunderstorm card to update firmware," reboot looping and never starting the shell
 If you have attempted to start the VM and it continues to reboot in an attempt to flash the Thunderstorm card to a different version, **take note of the version it attempts to upgrade it to (can also be a downgrade)**. This is the version we'll need to set the Thunderstorm device to in our QEMU run script. ***When the VM tries to reboot again, interrupt it before it tries to boot kernel.*** When you get the "ok" prompt, it should be safe to power off the VM or close the QEMU window at this point.

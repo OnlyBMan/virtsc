@@ -123,7 +123,7 @@ exec qemu-system-i386 \
   -qmp unix:./qmp.sock,server,nowait \
   -audiodev sdl,id=audio0 \
   -device thunderstorm,id=tsc0,present=on,version=0x011a0012,\
-input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
+input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,output=./is1-output,\
 stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
 audiodev=audio0 \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
@@ -222,7 +222,7 @@ exec qemu-system-i386 \
   -audiodev coreaudio,id=audio0 \
   -device thunderstorm,id=tsc0,present=on,version=0x011a0012,\
 input=bars,input-pipe=./is1-in-v,input-audio=./is1-in-a,\
-stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,\
+stamp=host-ns,tstamp=host-s,timecode=utc,audio=silence,output=./is1-output,\
 audiodev=audio0 \
   -device is1gl,id=is1gl0,mmio=0xfed10000,iobase=0x520 \
   -device is1-clock \
