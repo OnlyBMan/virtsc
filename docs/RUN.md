@@ -241,7 +241,8 @@ Before saving the copy script, change the **virtsc** path in it to the folder wh
 <details>
 <summary><b>Debian/macOS/WSL</b></summary>
 
-If you get the error **Bad server host key: Invalid key length failure** add ```-o RSAMinSize=1024``` to the ssh command
+
+If you get the error "**Bad server host key: Invalid key length failure**", add ```-o RSAMinSize=1024``` to the ssh command
 
 The SSH script:
 ```bash
